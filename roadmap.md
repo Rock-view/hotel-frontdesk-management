@@ -1,0 +1,8 @@
+- [x] Remove unwanted leading zeroes from discount and advance fields, including stay edits.
+- [x] Label top-right actions on hover and focus.
+- [x] Simplify receipt and WhatsApp actions with visible names.
+- [x] Verify amount editing and booking actions in the signed-in app.- [x] Multi-room booking with rooms grouped by category.
+- [x] Auto check-in for today; advance only for future dates; GST Bill switch; 5 sources.
+- [x] Extras (owner-priced, addable in Settings), manual guest ID entries.
+- [x] Collect balance, WhatsApp bill, check-in only after full payment, modify/cancel with charges.
+- [x] Show categories instead of room numbers on receipts, bills, and WhatsApp bills; verify internal numbers remain visible.
