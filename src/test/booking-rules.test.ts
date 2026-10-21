@@ -3,7 +3,7 @@ import { BOOKING_SOURCES, billTitle, bookingTotal, suggestedQty } from "@/lib/bo
 
 describe("booking rules", () => {
   it("offers only the five booking sources", () => {
-    expect([...BOOKING_SOURCES]).toEqual(["Walk-in", "Travel Agent", "Agoda", "Make My Trip", "Other"]);
+    expect([...BOOKING_SOURCES]).toEqual(["Walk-in", "Google", "Travel Agent", "OTA", "Other"]);
   });
   it("GST bill on is titled GST Bill, off is Booking Receipt", () => {
     expect(billTitle(true)).toBe("GST Bill");

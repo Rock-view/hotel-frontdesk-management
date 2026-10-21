@@ -1,4 +1,4 @@
-export const BOOKING_SOURCES = ["Walk-in", "Travel Agent", "Agoda", "Make My Trip", "Other"] as const;
+export const BOOKING_SOURCES = ["Walk-in", "Google", "Travel Agent", "OTA", "Other"] as const;
 
 export const EXTRA_UNITS: Record<string, string> = {
   per_person_night: "per person / night",
