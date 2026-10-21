@@ -21,6 +21,15 @@ export const Route = createFileRoute("/_authenticated/rooms")({
 
 const UNIT_TYPES = ["Room", "Suite", "Dormitory", "Cottage", "Villa", "Cabin", "Tent"];
 
+type Cat = {
+  id: string;
+  name: string;
+  unit_type?: string;
+  base_rate: number;
+  max_guests: number;
+  description?: string | null;
+};
+
 type RoomRow = {
   id: string; number: string; category_id: string | null; floor: string | null;
   rate: number; max_guests: number; description: string | null; active: boolean;
@@ -47,6 +56,7 @@ function Rooms() {
   const refresh = () => { qc.invalidateQueries({ queryKey: ["rooms-all"] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); };
   const [roomOpen, setRoomOpen] = useState(false);
   const [catOpen, setCatOpen] = useState(false);
+  const [editCat, setEditCat] = useState<Cat | null>(null);
   const [blockOpen, setBlockOpen] = useState(false);
   const [editRoom, setEditRoom] = useState<RoomRow | null>(null);
 
@@ -118,9 +128,20 @@ function Rooms() {
           {q.data?.cats.length === 0 ? <Empty>No categories yet.</Empty> : (
             <div className="divide-y rounded-xl border bg-card">
               {q.data?.cats.map((c) => (
-                <div key={c.id} className="flex justify-between p-4">
-                  <div><div className="font-medium">{c.name}</div><div className="text-xs text-muted-foreground">{c.unit_type} · up to {c.max_guests} guests</div></div>
-                  <div className="font-medium">{money(c.base_rate, cur)}</div>
+                <div key={c.id} className="flex items-center justify-between p-4">
+                  <div>
+                    <div className="font-medium">{c.name}</div>
+                    <div className="text-xs text-muted-foreground">{c.unit_type} · up to {c.max_guests} guests</div>
+                    {c.description && <div className="mt-1 text-xs text-muted-foreground">{c.description}</div>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="font-medium">{money(c.base_rate, cur)}</div>
+                    {isOwner && (
+                      <Button size="icon" variant="ghost" onClick={() => setEditCat(c)} aria-label={`Edit category ${c.name}`}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -147,6 +168,7 @@ function Rooms() {
       </Tabs>
 
       <CategoryDialog open={catOpen} onClose={() => setCatOpen(false)} onDone={refresh} />
+      <EditCategoryDialog cat={editCat} onClose={() => setEditCat(null)} onDone={refresh} />
       <RoomDialog open={roomOpen} onClose={() => setRoomOpen(false)} cats={q.data?.cats ?? []} onDone={refresh} />
       <BlockDialog open={blockOpen} onClose={() => setBlockOpen(false)} rooms={q.data?.rooms ?? []} onDone={refresh} />
       <EditRoomDialog room={editRoom} onClose={() => setEditRoom(null)} cats={q.data?.cats ?? []} onDone={refresh} />
@@ -182,7 +204,66 @@ function CategoryDialog({ open, onClose, onDone }: { open: boolean; onClose: () 
   );
 }
 
-type Cat = { id: string; name: string; base_rate: number; max_guests: number };
+function EditCategoryDialog({ cat, onClose, onDone }: { cat: Cat | null; onClose: () => void; onDone: () => void }) {
+  const [f, setF] = useState({ name: "", unit_type: "Room", base_rate: "", max_guests: "2", description: "" });
+  useEffect(() => {
+    if (cat) {
+      setF({
+        name: cat.name,
+        unit_type: cat.unit_type || "Room",
+        base_rate: String(cat.base_rate),
+        max_guests: String(cat.max_guests),
+        description: cat.description ?? "",
+      });
+    }
+  }, [cat]);
+
+  async function save() {
+    if (!cat) return;
+    const { error } = await supabase.from("room_categories").update({
+      name: f.name,
+      unit_type: f.unit_type,
+      base_rate: Number(f.base_rate),
+      max_guests: Number(f.max_guests),
+      description: f.description || null,
+    }).eq("id", cat.id);
+    if (error) { toast.error(errMsg(error)); return; }
+    toast.success(`Category ${f.name} updated`);
+    onDone(); onClose();
+  }
+
+  return (
+    <Dialog open={!!cat} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Edit category {cat?.name}</DialogTitle></DialogHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Name</Label>
+            <Input placeholder="Deluxe AC, Garden Cottage…" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <Select value={f.unit_type} onValueChange={(v) => setF({ ...f, unit_type: v })}><SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{UNIT_TYPES.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent></Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Max guests</Label>
+            <Input type="number" min={1} value={f.max_guests} onChange={(e) => setF({ ...f, max_guests: e.target.value })} />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Standard rate per night</Label>
+            <Input type="number" min={0} value={f.base_rate} onChange={(e) => setF({ ...f, base_rate: e.target.value })} />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Description / amenities</Label>
+            <Input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />
+          </div>
+        </div>
+        <DialogFooter><Button onClick={save} disabled={!f.name}>Save changes</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 function RoomDialog({ open, onClose, cats, onDone }: { open: boolean; onClose: () => void; cats: Cat[]; onDone: () => void }) {
   const [catId, setCatId] = useState("");
   const [numbers, setNumbers] = useState("");

@@ -23,7 +23,7 @@ function InvoicePage() {
         supabase.from("booking_totals").select("*").eq("booking_id", id).single(),
         supabase.from("booking_charges").select("*").eq("booking_id", id).order("created_at"),
         supabase.from("payments").select("*").eq("booking_id", id).order("received_at"),
-        supabase.from("booking_rooms").select("*, rooms(room_categories(name))").eq("booking_id", id).is("removed_at", null).order("created_at"),
+        supabase.from("booking_rooms").select("*, rooms(room_categories(name, description))").eq("booking_id", id).is("removed_at", null).order("created_at"),
       ]);
       if (b.error) throw b.error;
       return { b: b.data, t: t.data!, charges: c.data ?? [], payments: p.data ?? [], rooms: r.data ?? [] };
@@ -67,7 +67,15 @@ function InvoicePage() {
           <thead><tr className="border-b text-left text-xs uppercase text-muted-foreground"><th className="py-2">Description</th><th className="py-2 text-right">Amount</th></tr></thead>
           <tbody>
             {rooms.map((r) => (
-               <tr key={r.id} className="border-b"><td className="py-2">{customerRoomCategory(r)} ({t.nights} night{t.nights === 1 ? "" : "s"} × {money(r.rate, cur)})</td><td className="py-2 text-right">{money(Number(r.rate) * Number(t.nights), cur)}</td></tr>
+               <tr key={r.id} className="border-b">
+                 <td className="py-2">
+                   <div>{customerRoomCategory(r)} ({t.nights} night{t.nights === 1 ? "" : "s"} × {money(r.rate, cur)})</div>
+                   {r.rooms?.room_categories?.description && (
+                     <div className="text-xs text-muted-foreground">{r.rooms.room_categories.description}</div>
+                   )}
+                 </td>
+                 <td className="py-2 text-right">{money(Number(r.rate) * Number(t.nights), cur)}</td>
+               </tr>
             ))}
             {charges.map((c) => <tr key={c.id} className="border-b"><td className="py-2">{c.description}</td><td className="py-2 text-right">{money(c.amount, cur)}</td></tr>)}
             {Number(b.discount) > 0 && <tr className="border-b"><td className="py-2">Discount</td><td className="py-2 text-right">− {money(b.discount, cur)}</td></tr>}

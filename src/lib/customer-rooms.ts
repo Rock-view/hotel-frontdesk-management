@@ -1,5 +1,5 @@
 type CustomerRoom = {
-  rooms?: { room_categories?: { name: string } | null } | null;
+  rooms?: { room_categories?: { name: string; description?: string | null } | null } | null;
 };
 
 /** Customer documents must never fall back to internal room numbers. */
