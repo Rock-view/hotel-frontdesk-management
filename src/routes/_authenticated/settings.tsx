@@ -12,8 +12,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { errMsg } from "@/lib/format";
-import type { Database } from "@/integrations/supabase/types";
+import type { Database, Json } from "@/integrations/supabase/types";
 import { ExtrasSettings } from "@/components/ExtrasSettings";
+import { getPolicyVisibility, type PolicyKey } from "@/lib/policies";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({ meta: [{ title: "Settings — Front Desk" }, { name: "description", content: "Property details, taxes and receipt settings." }, { property: "og:title", content: "Settings — Front Desk" }, { property: "og:description", content: "Property details, taxes and receipt settings." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
@@ -118,25 +119,109 @@ function SettingsPage() {
       </Card>
 
       <Card title="Numbering">
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-4">
           {T("booking_prefix", "Booking ID prefix")}
           {T("receipt_prefix", "Receipt prefix")}
           {T("invoice_prefix", "Invoice prefix")}
+          {T("quotation_prefix" as keyof S, "Quotation prefix")}
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">Next numbers: {f.booking_prefix}{String(f.next_booking_no).padStart(5, "0")} · {f.receipt_prefix}{String(f.next_receipt_no).padStart(5, "0")} · {f.invoice_prefix}{String(f.next_invoice_no).padStart(5, "0")}</p>
+        <p className="mt-3 text-xs text-muted-foreground">Next numbers: {f.booking_prefix}{String(f.next_booking_no).padStart(5, "0")} · {f.receipt_prefix}{String(f.next_receipt_no).padStart(5, "0")} · {f.invoice_prefix}{String(f.next_invoice_no).padStart(5, "0")} · {(f as any).quotation_prefix || "QT-"}{String((f as any).next_quotation_no || 1).padStart(5, "0")}</p>
       </Card>
 
-      <Card title="Receipts & policies">
+      <Card title="Policies & Documents">
         <div className="grid gap-3 sm:grid-cols-2">
           {([["show_logo", "Show logo"], ["show_address", "Show address"], ["show_gstin", "Show GSTIN"], ["show_balance", "Show balance due"]] as const).map(([k, l]) => (
             <label key={k} className="flex items-center gap-3 text-sm"><Switch disabled={!isOwner} checked={f[k]} onCheckedChange={(v) => set(k, v)} /> {l}</label>
           ))}
         </div>
         <div className="mt-4 space-y-4">
-          <div className="space-y-1.5"><Label>Receipt footer</Label><Textarea disabled={!isOwner} value={f.receipt_footer ?? ""} onChange={(e) => set("receipt_footer", e.target.value)} placeholder="Thank you for staying with us!" /></div>
-          <div className="space-y-1.5"><Label>Terms & conditions</Label><Textarea disabled={!isOwner} value={f.terms ?? ""} onChange={(e) => set("terms", e.target.value)} /></div>
-          <div className="space-y-1.5"><Label>Cancellation & refund policy</Label><Textarea disabled={!isOwner} value={f.cancellation_policy ?? ""} onChange={(e) => set("cancellation_policy", e.target.value)} /></div>
+          <div className="space-y-1.5">
+            <Label>Guarantee Policy</Label>
+            <Textarea disabled={!isOwner} value={f.terms ?? ""} onChange={(e) => set("terms", e.target.value)} placeholder="All bookings must be guaranteed by a 50% advance payment." />
+            <p className="text-xs text-muted-foreground">Outlines booking guarantee terms for estimates and invoices.</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Cancellation & refund policy</Label>
+            <Textarea disabled={!isOwner} value={f.cancellation_policy ?? ""} onChange={(e) => set("cancellation_policy", e.target.value)} placeholder="Free cancellation up to 48 hours before check-in." />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Photo Identity Policy</Label>
+            <Textarea disabled={!isOwner} value={(f as any).photo_id_policy ?? ""} onChange={(e) => set("photo_id_policy" as keyof S, e.target.value as never)} placeholder="All guests must produce government-approved identification upon arrival. Foreign nationals must provide valid passport and visa." />
+          </div>
+          <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+            <strong className="text-foreground">Arrival & Departure Policy:</strong> Uses default check-in ({f.check_in_time}) and check-out ({f.check_out_time}) configured above under Property.
+          </div>
+          <div className="space-y-1.5">
+            <Label>Receipt footer</Label>
+            <Textarea disabled={!isOwner} value={f.receipt_footer ?? ""} onChange={(e) => set("receipt_footer", e.target.value)} placeholder="Thank you for staying with us!" />
+          </div>
         </div>
+
+        <div className="mt-6 space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold">Policy Visibility</h3>
+            <p className="text-xs text-muted-foreground">Configure which policies appear on the Estimate (Quotation) and Bill (Invoice).</p>
+          </div>
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="p-3">Policy</th>
+                  <th className="p-3 text-center">Show in Estimate</th>
+                  <th className="p-3 text-center">Show in Bill</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {[
+                  { key: "guarantee", label: "Guarantee Policy" },
+                  { key: "cancellation", label: "Cancellation Policy" },
+                  { key: "photo_id", label: "Photo Identity Policy" },
+                  { key: "arrival_departure", label: "Arrival & Departure Policy" },
+                  { key: "receipt_footer", label: "Receipt Footer" },
+                ].map((item) => {
+                  const vis = getPolicyVisibility((f as any).policy_visibility);
+                  const k = item.key as PolicyKey;
+                  return (
+                    <tr key={item.key} className="hover:bg-muted/30">
+                      <td className="p-3 font-medium">{item.label}</td>
+                      <td className="p-3 text-center">
+                        <input
+                          type="checkbox"
+                          disabled={!isOwner}
+                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          checked={vis[k].estimate}
+                          onChange={(e) => {
+                            const next = {
+                              ...vis,
+                              [k]: { ...vis[k], estimate: e.target.checked },
+                            };
+                            set("policy_visibility" as keyof S, next as never);
+                          }}
+                        />
+                      </td>
+                      <td className="p-3 text-center">
+                        <input
+                          type="checkbox"
+                          disabled={!isOwner}
+                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          checked={vis[k].bill}
+                          onChange={(e) => {
+                            const next = {
+                              ...vis,
+                              [k]: { ...vis[k], bill: e.target.checked },
+                            };
+                            set("policy_visibility" as keyof S, next as never);
+                          }}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div className="mt-5 rounded-lg border bg-background p-4">
           <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Receipt header preview</div>
           <div className="flex items-center gap-3">

@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { addDaysISO, errMsg, money, nights, todayISO } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { BOOKING_SOURCES, bookingTotal, groupRoomsByCategory } from "@/lib/booking";
+import { saveQuotation, calculateQuotationBreakdown } from "@/lib/quotations";
 
 export const Route = createFileRoute("/_authenticated/bookings/new")({
   head: () => ({ meta: [{ title: "New booking — Front Desk" }, { name: "description", content: "Create a walk-in or advance booking." }, { property: "og:title", content: "New booking — Front Desk" }, { property: "og:description", content: "Create a walk-in or advance booking." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
@@ -54,7 +55,7 @@ function NewBooking() {
   });
   const cats = useQuery({
     queryKey: ["room-categories"],
-    queryFn: async () => (await supabase.from("room_categories").select("id, name").order("name")).data ?? [],
+    queryFn: async () => (await supabase.from("room_categories").select("id, name, description").order("name")).data ?? [],
   });
   const groups = useMemo(() => groupRoomsByCategory(rooms.data ?? [], cats.data ?? []), [rooms.data, cats.data]);
 
@@ -101,6 +102,75 @@ function NewBooking() {
     if (error) { toast.error(errMsg(error)); return; }
     toast.success(isFuture ? "Booking saved" : "Booking saved and guest checked in");
     navigate({ to: "/bookings/$id", params: { id: data as string } });
+  }
+
+  async function handleCreateQuotation() {
+    const list = Object.entries(selected);
+    if (!f.name.trim() || !f.mobile.trim()) {
+      toast.error("Enter guest name and mobile number");
+      return;
+    }
+    if (!list.length) {
+      toast.error("Choose at least one room for the quotation");
+      return;
+    }
+    if (!validDates) {
+      toast.error("Check-out must be after check-in");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const quotedRooms = list.map(([id, rate]) => {
+        const room = roomById.get(id);
+        const cat = cats.data?.find((c) => c.id === room?.category_id);
+        return {
+          room_id: id,
+          room_number: room?.number,
+          category_id: room?.category_id || undefined,
+          category_name: cat?.name || "Room",
+          description: cat?.description || "",
+          rate: Number(rate),
+        };
+      });
+
+      const breakdown = calculateQuotationBreakdown({
+        rooms: quotedRooms,
+        nights: n,
+        charges: [],
+        discount: f.discount,
+        gst_bill: f.gst_bill,
+        gst_pct: f.gst_bill ? taxRate : 0,
+      });
+
+      const saved = await saveQuotation({
+        guest_name: f.name,
+        guest_mobile: f.mobile,
+        guest_email: f.email || null,
+        check_in: f.check_in,
+        check_out: f.check_out,
+        adults: f.adults,
+        children: f.children,
+        nights: n,
+        source: f.source,
+        gst_bill: f.gst_bill,
+        tax_rate: f.gst_bill ? taxRate : 0,
+        discount: f.discount,
+        subtotal: breakdown.subtotal,
+        tax_amount: breakdown.taxAmount,
+        total: breakdown.total,
+        notes: f.notes || null,
+        rooms: quotedRooms,
+        charges: [],
+      });
+
+      toast.success(`Quotation ${saved.quotation_no} created successfully!`);
+      navigate({ to: "/bookings", search: { tab: "quotations" } });
+    } catch (err: unknown) {
+      toast.error((err as Error)?.message || "Failed to create quotation");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -211,13 +281,26 @@ function NewBooking() {
         <Field label="Notes" className="mt-4"><Textarea value={f.notes} onChange={(e) => set("notes", e.target.value)} /></Field>
       </Section>
 
-      <div className="sticky bottom-16 z-10 flex items-center justify-between gap-4 rounded-xl border bg-card p-4 shadow-lg lg:bottom-4">
+      <div className="sticky bottom-16 z-10 flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card p-4 shadow-lg lg:bottom-4">
         <div>
           <div className="text-xs text-muted-foreground">Estimated total</div>
           <div className="font-display text-xl font-semibold">{money(total, cur)}</div>
           {isFuture && f.advance > 0 && <div className="text-xs text-muted-foreground">Balance {money(total - f.advance, cur)}</div>}
         </div>
-        <Button type="submit" size="lg" disabled={busy}>{busy ? "Saving…" : "Save booking"}</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            onClick={handleCreateQuotation}
+            disabled={busy || !Object.keys(selected).length}
+          >
+            Create Quotation
+          </Button>
+          <Button type="submit" size="lg" disabled={busy}>
+            {busy ? "Saving…" : isFuture ? "Direct Booking" : "Save booking"}
+          </Button>
+        </div>
       </div>
     </form>
   );

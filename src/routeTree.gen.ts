@@ -24,6 +24,7 @@ import { Route as AuthenticatedBookingsIndexRouteImport } from './routes/_authen
 import { Route as AuthenticatedBookingsIdRouteImport } from './routes/_authenticated/bookings.$id'
 import { Route as AuthenticatedBookingsNewRouteImport } from './routes/_authenticated/bookings.new'
 import { Route as AuthenticatedPrintInvoiceIdRouteImport } from './routes/_authenticated/print.invoice.$id'
+import { Route as AuthenticatedPrintQuotationIdRouteImport } from './routes/_authenticated/print.quotation.$id'
 import { Route as AuthenticatedPrintReceiptIdRouteImport } from './routes/_authenticated/print.receipt.$id'
 
 const IndexRoute = IndexRouteImport.update({
@@ -103,6 +104,12 @@ const AuthenticatedPrintInvoiceIdRoute =
     path: '/print/invoice/$id',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedPrintQuotationIdRoute =
+  AuthenticatedPrintQuotationIdRouteImport.update({
+    id: '/print/quotation/$id',
+    path: '/print/quotation/$id',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedPrintReceiptIdRoute =
   AuthenticatedPrintReceiptIdRouteImport.update({
     id: '/print/receipt/$id',
@@ -125,6 +132,7 @@ export interface FileRoutesByFullPath {
   '/bookings/new': typeof AuthenticatedBookingsNewRoute
   '/bookings/': typeof AuthenticatedBookingsIndexRoute
   '/print/invoice/$id': typeof AuthenticatedPrintInvoiceIdRoute
+  '/print/quotation/$id': typeof AuthenticatedPrintQuotationIdRoute
   '/print/receipt/$id': typeof AuthenticatedPrintReceiptIdRoute
 }
 export interface FileRoutesByTo {
@@ -142,6 +150,7 @@ export interface FileRoutesByTo {
   '/bookings/new': typeof AuthenticatedBookingsNewRoute
   '/bookings': typeof AuthenticatedBookingsIndexRoute
   '/print/invoice/$id': typeof AuthenticatedPrintInvoiceIdRoute
+  '/print/quotation/$id': typeof AuthenticatedPrintQuotationIdRoute
   '/print/receipt/$id': typeof AuthenticatedPrintReceiptIdRoute
 }
 export interface FileRoutesById {
@@ -161,6 +170,7 @@ export interface FileRoutesById {
   '/_authenticated/bookings/new': typeof AuthenticatedBookingsNewRoute
   '/_authenticated/bookings/': typeof AuthenticatedBookingsIndexRoute
   '/_authenticated/print/invoice/$id': typeof AuthenticatedPrintInvoiceIdRoute
+  '/_authenticated/print/quotation/$id': typeof AuthenticatedPrintQuotationIdRoute
   '/_authenticated/print/receipt/$id': typeof AuthenticatedPrintReceiptIdRoute
 }
 export interface FileRouteTypes {
@@ -180,6 +190,7 @@ export interface FileRouteTypes {
     | '/bookings/new'
     | '/bookings/'
     | '/print/invoice/$id'
+    | '/print/quotation/$id'
     | '/print/receipt/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -197,6 +208,7 @@ export interface FileRouteTypes {
     | '/bookings/new'
     | '/bookings'
     | '/print/invoice/$id'
+    | '/print/quotation/$id'
     | '/print/receipt/$id'
   id:
     | '__root__'
@@ -215,6 +227,7 @@ export interface FileRouteTypes {
     | '/_authenticated/bookings/new'
     | '/_authenticated/bookings/'
     | '/_authenticated/print/invoice/$id'
+    | '/_authenticated/print/quotation/$id'
     | '/_authenticated/print/receipt/$id'
   fileRoutesById: FileRoutesById
 }
@@ -333,6 +346,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPrintInvoiceIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/print/quotation/$id': {
+      id: '/_authenticated/print/quotation/$id'
+      path: '/print/quotation/$id'
+      fullPath: '/print/quotation/$id'
+      preLoaderRoute: typeof AuthenticatedPrintQuotationIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/print/receipt/$id': {
       id: '/_authenticated/print/receipt/$id'
       path: '/print/receipt/$id'
@@ -354,6 +374,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedBookingsNewRoute: typeof AuthenticatedBookingsNewRoute
   AuthenticatedBookingsIndexRoute: typeof AuthenticatedBookingsIndexRoute
   AuthenticatedPrintInvoiceIdRoute: typeof AuthenticatedPrintInvoiceIdRoute
+  AuthenticatedPrintQuotationIdRoute: typeof AuthenticatedPrintQuotationIdRoute
   AuthenticatedPrintReceiptIdRoute: typeof AuthenticatedPrintReceiptIdRoute
 }
 
@@ -368,6 +389,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedBookingsNewRoute: AuthenticatedBookingsNewRoute,
   AuthenticatedBookingsIndexRoute: AuthenticatedBookingsIndexRoute,
   AuthenticatedPrintInvoiceIdRoute: AuthenticatedPrintInvoiceIdRoute,
+  AuthenticatedPrintQuotationIdRoute: AuthenticatedPrintQuotationIdRoute,
   AuthenticatedPrintReceiptIdRoute: AuthenticatedPrintReceiptIdRoute,
 }
 

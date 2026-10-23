@@ -50,6 +50,13 @@
       "when": 1792311915708,
       "tag": "0006_room_direct_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792750000000,
+      "tag": "0007_quotations_and_policies",
+      "breakpoints": true
     }
   ]
 }

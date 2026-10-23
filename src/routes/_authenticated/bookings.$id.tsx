@@ -1,8 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { FileText, MessageCircle, Receipt } from "lucide-react";
+import { Download, FileText, MessageCircle, Receipt } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useMe, useSettings } from "@/hooks/use-me";
 import { PageHeader, StatusPill } from "@/components/bits";
@@ -20,6 +20,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { errMsg, fmtDate, fmtDateTime, money, STATUS_LABEL, waNumber } from "@/lib/format";
 import { billTitle, EXTRA_UNITS, suggestedQty } from "@/lib/booking";
 import { customerRoomCategory } from "@/lib/customer-rooms";
+import { InvoiceDocument } from "@/components/InvoiceDocument";
+import { downloadPdfFromElement, sharePdfViaWhatsApp } from "@/lib/pdf";
 
 export const Route = createFileRoute("/_authenticated/bookings/$id")({
   head: () => ({ meta: [{ title: "Booking — Front Desk" }, { name: "description", content: "Booking details, extras, bill and check-in." }, { property: "og:title", content: "Booking — Front Desk" }, { property: "og:description", content: "Booking details, extras, bill and check-in." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
@@ -41,7 +43,7 @@ function BookingDetail() {
         supabase.from("booking_charges").select("*").eq("booking_id", id).order("created_at"),
         supabase.from("payments").select("*").eq("booking_id", id).order("received_at"),
         supabase.from("booking_status_history").select("*").eq("booking_id", id).order("changed_at"),
-        supabase.from("booking_rooms").select("*, rooms(number, max_guests, room_categories(name))").eq("booking_id", id).order("created_at"),
+        supabase.from("booking_rooms").select("*, rooms(number, max_guests, room_categories(name, description))").eq("booking_id", id).order("created_at"),
         supabase.from("extras").select("*").eq("active", true).order("sort").order("name"),
       ]);
       if (b.error) throw b.error;
@@ -60,6 +62,8 @@ function BookingDetail() {
   const [payOpen, setPayOpen] = useState<null | "payment" | "refund">(null);
   const [chargeOpen, setChargeOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState<null | "checked_in" | "checked_out">(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const invoicePdfRef = useRef<HTMLDivElement>(null);
 
   if (!q.data) return <div className="text-muted-foreground">Loading…</div>;
   const { b, t, charges, payments, history, bookingRooms, extras } = q.data;
@@ -81,7 +85,12 @@ function BookingDetail() {
       `Room categories: ${activeRooms.map(customerRoomCategory).join(", ")}`,
       `${fmtDate(b.check_in)} to ${fmtDate(b.check_out)} (${t?.nights} night${t?.nights === 1 ? "" : "s"})`,
       "",
-      ...activeRooms.map((r) => `${customerRoomCategory(r)}: ${money(Number(r.rate) * Number(t?.nights ?? 0), cur)}`),
+      ...activeRooms.flatMap((r) => {
+        const cat = customerRoomCategory(r);
+        const rateLine = `${cat}: ${money(Number(r.rate) * Number(t?.nights ?? 0), cur)}`;
+        const desc = r.rooms?.room_categories?.description?.trim();
+        return desc ? [rateLine, `  ${desc}`] : [rateLine];
+      }),
       ...charges.map((c) => `${c.description}: ${money(c.amount, cur)}`),
       Number(b.discount) > 0 ? `Discount: − ${money(b.discount, cur)}` : "",
       b.gst_bill ? `${s?.tax_label ?? "GST"} @ ${b.tax_rate}%: ${money(t?.tax_amount, cur)}` : "",
@@ -93,6 +102,48 @@ function BookingDetail() {
       s?.receipt_footer ?? "",
     ].filter((l, i, a) => l !== "" || (i > 0 && a[i - 1] !== ""));
     window.open(`https://wa.me/${waNumber(guest?.mobile ?? "")}?text=${encodeURIComponent(lines.join("\n"))}`, "_blank");
+  }
+
+  async function shareBillPdf() {
+    if (!invoicePdfRef.current) return;
+    try {
+      setPdfBusy(true);
+      toast.info("Preparing invoice PDF for WhatsApp…");
+      const invNo = b.invoice_no ?? b.booking_no;
+      const filename = `Invoice_${invNo}.pdf`;
+      const greeting = `Hello ${guest?.name || "Guest"}, please find attached your bill ${invNo} from ${settings.data?.name || "our hotel"}.`;
+      const res = await sharePdfViaWhatsApp(
+        invoicePdfRef.current,
+        filename,
+        guest?.mobile ?? "",
+        greeting
+      );
+      if (res === "shared") {
+        toast.success("Invoice PDF shared via WhatsApp");
+      } else if (res === "downloaded_and_opened") {
+        toast.info("Invoice PDF downloaded. Please attach it in the opened WhatsApp chat.", { duration: 6000 });
+      }
+    } catch (err: unknown) {
+      toast.error((err as Error)?.message || "Failed to share invoice PDF");
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
+  async function downloadInvoicePdf() {
+    if (!invoicePdfRef.current) return;
+    try {
+      setPdfBusy(true);
+      toast.info("Generating invoice PDF…");
+      const invNo = b.invoice_no ?? b.booking_no;
+      const filename = `Invoice_${invNo}.pdf`;
+      await downloadPdfFromElement(invoicePdfRef.current, filename);
+      toast.success("Invoice PDF downloaded");
+    } catch (err: unknown) {
+      toast.error((err as Error)?.message || "Failed to download PDF");
+    } finally {
+      setPdfBusy(false);
+    }
   }
 
   return (
@@ -201,8 +252,22 @@ function BookingDetail() {
             <Button className="w-full" variant="outline" onClick={() => setPayOpen("refund")}>Refund {money(-balance, cur)}</Button>
           )}
           <div className="grid grid-cols-2 gap-2">
-            <Button variant="outline" onClick={shareBill}><MessageCircle className="h-4 w-4" />WhatsApp bill</Button>
-            <Button variant="outline" asChild><Link to="/print/invoice/$id" params={{ id }}><FileText className="h-4 w-4" />View bill</Link></Button>
+            <Button variant="outline" onClick={shareBillPdf} disabled={pdfBusy} title="Share PDF via WhatsApp">
+              <MessageCircle className="h-4 w-4" />WhatsApp PDF
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/print/invoice/$id" params={{ id }}>
+                <FileText className="h-4 w-4" />View bill
+              </Link>
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="ghost" size="sm" onClick={downloadInvoicePdf} disabled={pdfBusy} className="text-xs">
+              <Download className="mr-1 h-3.5 w-3.5" />Download PDF
+            </Button>
+            <Button variant="ghost" size="sm" onClick={shareBill} className="text-xs" title="Share text message">
+              <MessageCircle className="mr-1 h-3.5 w-3.5" />WhatsApp text
+            </Button>
           </div>
           {payments.length > 0 && (
             <div className="border-t pt-3">
@@ -230,6 +295,19 @@ function BookingDetail() {
       <PaymentDialog kind={payOpen} onClose={() => setPayOpen(null)} bookingId={id} methods={settings.data?.payment_methods ?? ["Cash"]} suggested={Math.abs(balance)} onDone={refresh} />
       <ChargeDialog open={chargeOpen} onClose={() => setChargeOpen(false)} bookingId={id} onDone={refresh} />
       <StatusDialog to={statusOpen} onClose={() => setStatusOpen(null)} bookingId={id} balance={balance} cur={cur} onDone={refresh} />
+
+      {/* Hidden container for PDF rendering */}
+      <div style={{ position: "fixed", left: -9999, top: 0, width: 800 }}>
+        <InvoiceDocument
+          ref={invoicePdfRef}
+          booking={b}
+          totals={t}
+          charges={charges}
+          payments={payments}
+          rooms={activeRooms}
+          settings={settings.data}
+        />
+      </div>
     </div>
   );
 }
