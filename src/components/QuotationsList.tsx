@@ -13,7 +13,7 @@ import { ViewQuotationDialog } from "@/components/ViewQuotationDialog";
 import { EditQuotationDialog } from "@/components/EditQuotationDialog";
 import { ConvertQuotationDialog } from "@/components/ConvertQuotationDialog";
 import { QuotationDocument } from "@/components/QuotationDocument";
-import { downloadPdfFromElement, sharePdfViaWhatsApp } from "@/lib/pdf";
+import { downloadPdfFromElement, openWhatsAppChat } from "@/lib/pdf";
 
 export function QuotationsList({ onConverted }: { onConverted?: (bookingId: string) => void }) {
   const qc = useQueryClient();
@@ -85,48 +85,27 @@ export function QuotationsList({ onConverted }: { onConverted?: (bookingId: stri
 
     // Wait one tick for offscreen element to render
     setTimeout(async () => {
-      if (hiddenDocRef.current) {
-        try {
+      try {
+        if (hiddenDocRef.current) {
           await downloadPdfFromElement(hiddenDocRef.current, `Quotation_${item.quotation_no}.pdf`);
           toast.success("PDF downloaded");
-        } catch (err: unknown) {
-          toast.error((err as Error)?.message || "Failed to download PDF");
-        } finally {
-          setBusyId(null);
-          setActivePdfQuotation(null);
         }
+      } catch (err: unknown) {
+        toast.error((err as Error)?.message || "Failed to download PDF");
+      } finally {
+        setBusyId(null);
+        setActivePdfQuotation(null);
       }
     }, 150);
   }
 
-  async function handleDirectWhatsApp(item: Quotation) {
-    setActivePdfQuotation(item);
-    setBusyId(item.id);
-    toast.info("Preparing quotation for WhatsApp…");
-
-    setTimeout(async () => {
-      if (hiddenDocRef.current) {
-        try {
-          const greeting = `Hello ${item.guest_name}, please find attached your estimate ${item.quotation_no} from ${settings.data?.name || "our hotel"}.`;
-          const res = await sharePdfViaWhatsApp(
-            hiddenDocRef.current,
-            `Quotation_${item.quotation_no}.pdf`,
-            item.guest_mobile,
-            greeting
-          );
-          if (res === "shared") {
-            toast.success("Quotation shared via WhatsApp");
-          } else if (res === "downloaded_and_opened") {
-            toast.info("PDF downloaded. Please attach the quotation in the opened WhatsApp chat.", { duration: 6000 });
-          }
-        } catch (err: unknown) {
-          toast.error((err as Error)?.message || "Failed to share via WhatsApp");
-        } finally {
-          setBusyId(null);
-          setActivePdfQuotation(null);
-        }
-      }
-    }, 150);
+  function handleDirectWhatsApp(item: Quotation) {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const link = `${origin}/view/quotation/${item.id}`;
+    const hotelName = settings.data?.name || "our hotel";
+    const greeting = `Hi ${item.guest_name}, Please Find the Attached Quotation from ${hotelName}:\n${link}`;
+    openWhatsAppChat(item.guest_mobile, greeting);
+    toast.success("WhatsApp opened with quotation link");
   }
 
   const list = q.data ?? [];

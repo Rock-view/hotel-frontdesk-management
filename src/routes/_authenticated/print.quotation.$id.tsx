@@ -7,7 +7,7 @@ import { useSettings } from "@/hooks/use-me";
 import { Button } from "@/components/ui/button";
 import { QuotationDocument } from "@/components/QuotationDocument";
 import { getQuotationById } from "@/lib/quotations";
-import { downloadPdfFromElement, sharePdfViaWhatsApp } from "@/lib/pdf";
+import { downloadPdfFromElement, openWhatsAppChat } from "@/lib/pdf";
 
 export const Route = createFileRoute("/_authenticated/print/quotation/$id")({
   head: () => ({
@@ -57,23 +57,13 @@ function QuotationPrintPage() {
     }
   }
 
-  async function handleWhatsAppPdf() {
-    if (!docRef.current) return;
-    try {
-      setBusy(true);
-      toast.info("Preparing quotation for WhatsApp…");
-      const greeting = `Hello ${item.guest_name}, please find attached your estimate ${item.quotation_no} from ${h?.name || "our hotel"}.`;
-      const res = await sharePdfViaWhatsApp(docRef.current, filename, item.guest_mobile, greeting);
-      if (res === "shared") {
-        toast.success("Quotation shared via WhatsApp");
-      } else if (res === "downloaded_and_opened") {
-        toast.info("PDF downloaded. Please attach the quotation in the opened WhatsApp chat.", { duration: 6000 });
-      }
-    } catch (err: unknown) {
-      toast.error((err as Error)?.message || "Failed to share PDF");
-    } finally {
-      setBusy(false);
-    }
+  function handleWhatsAppLink() {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const link = `${origin}/view/quotation/${id}`;
+    const hotelName = h?.name || "our hotel";
+    const greeting = `Hi ${item.guest_name}, Please Find the Attached Quotation from ${hotelName}:\n${link}`;
+    openWhatsAppChat(item.guest_mobile, greeting);
+    toast.success("WhatsApp opened with quotation link");
   }
 
   return (
@@ -86,8 +76,8 @@ function QuotationPrintPage() {
           <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={busy}>
             <Download className="mr-1.5 h-4 w-4" /> Download PDF
           </Button>
-          <Button variant="outline" size="sm" onClick={handleWhatsAppPdf} disabled={busy}>
-            <MessageCircle className="mr-1.5 h-4 w-4" /> WhatsApp PDF
+          <Button variant="outline" size="sm" onClick={handleWhatsAppLink}>
+            <MessageCircle className="mr-1.5 h-4 w-4 text-emerald-600" /> WhatsApp Quotation
           </Button>
           <Button size="sm" onClick={() => window.print()}>
             <Printer className="mr-1.5 h-4 w-4" /> Print / Save

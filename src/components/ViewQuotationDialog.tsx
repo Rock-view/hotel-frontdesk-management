@@ -4,7 +4,7 @@ import { Download, MessageCircle, Printer, ArrowRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { QuotationDocument } from "@/components/QuotationDocument";
-import { downloadPdfFromElement, sharePdfViaWhatsApp } from "@/lib/pdf";
+import { downloadPdfFromElement, openWhatsAppChat } from "@/lib/pdf";
 import type { Quotation } from "@/lib/quotations";
 
 export function ViewQuotationDialog({
@@ -42,23 +42,13 @@ export function ViewQuotationDialog({
     }
   }
 
-  async function handleWhatsApp() {
-    if (!docRef.current) return;
-    try {
-      setBusy(true);
-      toast.info("Preparing quotation for WhatsApp…");
-      const greeting = `Hello ${q.guest_name}, please find attached your estimate ${q.quotation_no} from ${settings?.name || "our hotel"}.`;
-      const res = await sharePdfViaWhatsApp(docRef.current, filename, q.guest_mobile, greeting);
-      if (res === "shared") {
-        toast.success("Quotation shared via WhatsApp");
-      } else if (res === "downloaded_and_opened") {
-        toast.info("PDF downloaded. Please attach the quotation in the opened WhatsApp chat.", { duration: 6000 });
-      }
-    } catch (err: unknown) {
-      toast.error((err as Error)?.message || "Failed to share PDF");
-    } finally {
-      setBusy(false);
-    }
+  function handleWhatsApp() {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const link = `${origin}/view/quotation/${q.id}`;
+    const hotelName = settings?.name || "our hotel";
+    const greeting = `Hi ${q.guest_name}, Please Find the Attached Quotation from ${hotelName}:\n${link}`;
+    openWhatsAppChat(q.guest_mobile, greeting);
+    toast.success("WhatsApp opened with quotation link");
   }
 
   return (

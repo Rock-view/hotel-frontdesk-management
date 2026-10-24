@@ -21,7 +21,7 @@ import { errMsg, fmtDate, fmtDateTime, money, STATUS_LABEL, waNumber } from "@/l
 import { billTitle, EXTRA_UNITS, suggestedQty } from "@/lib/booking";
 import { customerRoomCategory } from "@/lib/customer-rooms";
 import { InvoiceDocument } from "@/components/InvoiceDocument";
-import { downloadPdfFromElement, sharePdfViaWhatsApp } from "@/lib/pdf";
+import { downloadPdfFromElement, openWhatsAppChat } from "@/lib/pdf";
 
 export const Route = createFileRoute("/_authenticated/bookings/$id")({
   head: () => ({ meta: [{ title: "Booking — Front Desk" }, { name: "description", content: "Booking details, extras, bill and check-in." }, { property: "og:title", content: "Booking — Front Desk" }, { property: "og:description", content: "Booking details, extras, bill and check-in." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
@@ -104,30 +104,14 @@ function BookingDetail() {
     window.open(`https://wa.me/${waNumber(guest?.mobile ?? "")}?text=${encodeURIComponent(lines.join("\n"))}`, "_blank");
   }
 
-  async function shareBillPdf() {
-    if (!invoicePdfRef.current) return;
-    try {
-      setPdfBusy(true);
-      toast.info("Preparing invoice PDF for WhatsApp…");
-      const invNo = b.invoice_no ?? b.booking_no;
-      const filename = `Invoice_${invNo}.pdf`;
-      const greeting = `Hello ${guest?.name || "Guest"}, please find attached your bill ${invNo} from ${settings.data?.name || "our hotel"}.`;
-      const res = await sharePdfViaWhatsApp(
-        invoicePdfRef.current,
-        filename,
-        guest?.mobile ?? "",
-        greeting
-      );
-      if (res === "shared") {
-        toast.success("Invoice PDF shared via WhatsApp");
-      } else if (res === "downloaded_and_opened") {
-        toast.info("Invoice PDF downloaded. Please attach it in the opened WhatsApp chat.", { duration: 6000 });
-      }
-    } catch (err: unknown) {
-      toast.error((err as Error)?.message || "Failed to share invoice PDF");
-    } finally {
-      setPdfBusy(false);
-    }
+  function shareBillLink() {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const link = `${origin}/view/bill/${id}`;
+    const hotelName = settings.data?.name || "our hotel";
+    const guestName = guest?.name || "Guest";
+    const greeting = `Hi ${guestName}, Please Find the Attached Bill from ${hotelName}:\n${link}`;
+    openWhatsAppChat(guest?.mobile ?? "", greeting);
+    toast.success("WhatsApp opened with bill link");
   }
 
   async function downloadInvoicePdf() {
@@ -252,8 +236,8 @@ function BookingDetail() {
             <Button className="w-full" variant="outline" onClick={() => setPayOpen("refund")}>Refund {money(-balance, cur)}</Button>
           )}
           <div className="grid grid-cols-2 gap-2">
-            <Button variant="outline" onClick={shareBillPdf} disabled={pdfBusy} title="Share PDF via WhatsApp">
-              <MessageCircle className="h-4 w-4" />WhatsApp PDF
+            <Button variant="outline" onClick={shareBillLink} title="Share bill link via WhatsApp">
+              <MessageCircle className="h-4 w-4 mr-1 text-emerald-600" />WhatsApp Bill
             </Button>
             <Button variant="outline" asChild>
               <Link to="/print/invoice/$id" params={{ id }}>

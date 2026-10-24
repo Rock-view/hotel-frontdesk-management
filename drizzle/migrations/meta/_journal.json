@@ -57,6 +57,13 @@
       "when": 1792750000000,
       "tag": "0007_quotations_and_policies",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792800000000,
+      "tag": "0008_public_view_documents",
+      "breakpoints": true
     }
   ]
 }

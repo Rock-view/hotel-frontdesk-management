@@ -170,4 +170,22 @@ describe("quotation calculations & breakdown", () => {
     expect(b.taxAmount).toBe(0);
     expect(b.total).toBe(3100);
   });
+
+  it("pdf options configures html2canvas with oklch sanitizer and standard A4 dimensions", async () => {
+    const { getPdfOptions } = await import("@/lib/pdf");
+    const opt = getPdfOptions("test.pdf");
+    expect(opt.filename).toBe("test.pdf");
+    expect(opt.jsPDF.format).toBe("a4");
+    expect(opt.html2canvas.scale).toBe(2);
+    expect(typeof opt.html2canvas.onclone).toBe("function");
+
+    // Test onclone behavior
+    const doc = document.implementation.createHTMLDocument();
+    opt.html2canvas.onclone(doc);
+    const injectedStyle = doc.querySelector("style[data-pdf-sanitizer='true']");
+    expect(injectedStyle).not.toBeNull();
+    expect(injectedStyle?.textContent).toContain("--background: #ffffff !important;");
+    expect(injectedStyle?.textContent).toContain("--card: #ffffff !important;");
+  });
 });
+

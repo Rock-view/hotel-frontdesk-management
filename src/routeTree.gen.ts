@@ -23,6 +23,8 @@ import { Route as AuthenticatedStaffRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedBookingsIndexRouteImport } from './routes/_authenticated/bookings.index'
 import { Route as AuthenticatedBookingsIdRouteImport } from './routes/_authenticated/bookings.$id'
 import { Route as AuthenticatedBookingsNewRouteImport } from './routes/_authenticated/bookings.new'
+import { Route as ViewBillIdRouteImport } from './routes/view.bill.$id'
+import { Route as ViewQuotationIdRouteImport } from './routes/view.quotation.$id'
 import { Route as AuthenticatedPrintInvoiceIdRouteImport } from './routes/_authenticated/print.invoice.$id'
 import { Route as AuthenticatedPrintQuotationIdRouteImport } from './routes/_authenticated/print.quotation.$id'
 import { Route as AuthenticatedPrintReceiptIdRouteImport } from './routes/_authenticated/print.receipt.$id'
@@ -98,6 +100,16 @@ const AuthenticatedBookingsNewRoute =
     path: '/bookings/new',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const ViewBillIdRoute = ViewBillIdRouteImport.update({
+  id: '/view/bill/$id',
+  path: '/view/bill/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ViewQuotationIdRoute = ViewQuotationIdRouteImport.update({
+  id: '/view/quotation/$id',
+  path: '/view/quotation/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedPrintInvoiceIdRoute =
   AuthenticatedPrintInvoiceIdRouteImport.update({
     id: '/print/invoice/$id',
@@ -130,6 +142,8 @@ export interface FileRoutesByFullPath {
   '/staff': typeof AuthenticatedStaffRoute
   '/bookings/$id': typeof AuthenticatedBookingsIdRoute
   '/bookings/new': typeof AuthenticatedBookingsNewRoute
+  '/view/bill/$id': typeof ViewBillIdRoute
+  '/view/quotation/$id': typeof ViewQuotationIdRoute
   '/bookings/': typeof AuthenticatedBookingsIndexRoute
   '/print/invoice/$id': typeof AuthenticatedPrintInvoiceIdRoute
   '/print/quotation/$id': typeof AuthenticatedPrintQuotationIdRoute
@@ -148,6 +162,8 @@ export interface FileRoutesByTo {
   '/staff': typeof AuthenticatedStaffRoute
   '/bookings/$id': typeof AuthenticatedBookingsIdRoute
   '/bookings/new': typeof AuthenticatedBookingsNewRoute
+  '/view/bill/$id': typeof ViewBillIdRoute
+  '/view/quotation/$id': typeof ViewQuotationIdRoute
   '/bookings': typeof AuthenticatedBookingsIndexRoute
   '/print/invoice/$id': typeof AuthenticatedPrintInvoiceIdRoute
   '/print/quotation/$id': typeof AuthenticatedPrintQuotationIdRoute
@@ -168,6 +184,8 @@ export interface FileRoutesById {
   '/_authenticated/staff': typeof AuthenticatedStaffRoute
   '/_authenticated/bookings/$id': typeof AuthenticatedBookingsIdRoute
   '/_authenticated/bookings/new': typeof AuthenticatedBookingsNewRoute
+  '/view/bill/$id': typeof ViewBillIdRoute
+  '/view/quotation/$id': typeof ViewQuotationIdRoute
   '/_authenticated/bookings/': typeof AuthenticatedBookingsIndexRoute
   '/_authenticated/print/invoice/$id': typeof AuthenticatedPrintInvoiceIdRoute
   '/_authenticated/print/quotation/$id': typeof AuthenticatedPrintQuotationIdRoute
@@ -188,6 +206,8 @@ export interface FileRouteTypes {
     | '/staff'
     | '/bookings/$id'
     | '/bookings/new'
+    | '/view/bill/$id'
+    | '/view/quotation/$id'
     | '/bookings/'
     | '/print/invoice/$id'
     | '/print/quotation/$id'
@@ -206,6 +226,8 @@ export interface FileRouteTypes {
     | '/staff'
     | '/bookings/$id'
     | '/bookings/new'
+    | '/view/bill/$id'
+    | '/view/quotation/$id'
     | '/bookings'
     | '/print/invoice/$id'
     | '/print/quotation/$id'
@@ -225,6 +247,8 @@ export interface FileRouteTypes {
     | '/_authenticated/staff'
     | '/_authenticated/bookings/$id'
     | '/_authenticated/bookings/new'
+    | '/view/bill/$id'
+    | '/view/quotation/$id'
     | '/_authenticated/bookings/'
     | '/_authenticated/print/invoice/$id'
     | '/_authenticated/print/quotation/$id'
@@ -237,6 +261,8 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  ViewBillIdRoute: typeof ViewBillIdRoute
+  ViewQuotationIdRoute: typeof ViewQuotationIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -339,6 +365,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedBookingsNewRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/view/bill/$id': {
+      id: '/view/bill/$id'
+      path: '/view/bill/$id'
+      fullPath: '/view/bill/$id'
+      preLoaderRoute: typeof ViewBillIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/view/quotation/$id': {
+      id: '/view/quotation/$id'
+      path: '/view/quotation/$id'
+      fullPath: '/view/quotation/$id'
+      preLoaderRoute: typeof ViewQuotationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/print/invoice/$id': {
       id: '/_authenticated/print/invoice/$id'
       path: '/print/invoice/$id'
@@ -402,6 +442,8 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  ViewBillIdRoute: ViewBillIdRoute,
+  ViewQuotationIdRoute: ViewQuotationIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSettings } from "@/hooks/use-me";
 import { Button } from "@/components/ui/button";
 import { InvoiceDocument } from "@/components/InvoiceDocument";
-import { downloadPdfFromElement, sharePdfViaWhatsApp } from "@/lib/pdf";
+import { downloadPdfFromElement, openWhatsAppChat } from "@/lib/pdf";
 
 export const Route = createFileRoute("/_authenticated/print/invoice/$id")({
   head: () => ({
@@ -64,23 +64,14 @@ function InvoicePage() {
     }
   }
 
-  async function handleWhatsAppPdf() {
-    if (!docRef.current) return;
-    try {
-      setBusy(true);
-      toast.info("Preparing PDF for WhatsApp…");
-      const greeting = `Hello ${b.guests?.name || "Guest"}, please find attached your invoice ${invNo} from ${h?.name || "our hotel"}.`;
-      const res = await sharePdfViaWhatsApp(docRef.current, filename, b.guests?.mobile ?? "", greeting);
-      if (res === "shared") {
-        toast.success("Shared via WhatsApp");
-      } else if (res === "downloaded_and_opened") {
-        toast.info("PDF downloaded. Please attach the invoice in the opened WhatsApp chat.", { duration: 6000 });
-      }
-    } catch (err: unknown) {
-      toast.error((err as Error)?.message || "Failed to share PDF");
-    } finally {
-      setBusy(false);
-    }
+  function handleWhatsAppLink() {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const link = `${origin}/view/bill/${id}`;
+    const hotelName = h?.name || "our hotel";
+    const guestName = b.guests?.name || "Guest";
+    const greeting = `Hi ${guestName}, Please Find the Attached Bill from ${hotelName}:\n${link}`;
+    openWhatsAppChat(b.guests?.mobile ?? "", greeting);
+    toast.success("WhatsApp opened with bill link");
   }
 
   return (
@@ -93,8 +84,8 @@ function InvoicePage() {
           <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={busy}>
             <Download className="mr-1.5 h-4 w-4" /> Download PDF
           </Button>
-          <Button variant="outline" size="sm" onClick={handleWhatsAppPdf} disabled={busy}>
-            <MessageCircle className="mr-1.5 h-4 w-4" /> WhatsApp PDF
+          <Button variant="outline" size="sm" onClick={handleWhatsAppLink}>
+            <MessageCircle className="mr-1.5 h-4 w-4 text-emerald-600" /> WhatsApp Bill
           </Button>
           <Button size="sm" onClick={() => window.print()}>
             <Printer className="mr-1.5 h-4 w-4" /> Print / Save
