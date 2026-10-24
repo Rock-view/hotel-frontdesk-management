@@ -107,19 +107,19 @@ function PublicBillViewPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100/70 py-6 px-4 print:bg-white print:p-0">
+    <div className="min-h-screen bg-slate-100/70 py-3 sm:py-6 px-2 sm:px-4 print:bg-white print:p-0">
       {/* Top action bar */}
-      <div className="mx-auto mb-6 flex max-w-2xl items-center justify-between rounded-xl bg-white p-4 shadow-sm border border-slate-200 print:hidden">
-        <div>
-          <h1 className="text-sm font-semibold text-slate-900">{settings?.name || "Hotel Bill"}</h1>
+      <div className="mx-auto mb-4 sm:mb-6 flex max-w-2xl flex-wrap items-center justify-between gap-3 rounded-xl bg-white p-3 sm:p-4 shadow-sm border border-slate-200 print:hidden">
+        <div className="min-w-0">
+          <h1 className="text-sm font-semibold text-slate-900 truncate">{settings?.name || "Hotel Bill"}</h1>
           <p className="text-xs text-slate-500">Invoice #{invNo}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => window.print()}>
-            <Printer className="mr-1.5 h-4 w-4" /> Print
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="sm" onClick={() => window.print()} className="h-8 px-2.5 text-xs">
+            <Printer className="mr-1 h-3.5 w-3.5" /> Print
           </Button>
-          <Button size="sm" onClick={handleDownloadPdf} disabled={downloading}>
-            <Download className="mr-1.5 h-4 w-4" /> Download PDF
+          <Button size="sm" onClick={handleDownloadPdf} disabled={downloading} className="h-8 px-2.5 text-xs">
+            <Download className="mr-1 h-3.5 w-3.5" /> Download PDF
           </Button>
         </div>
       </div>

@@ -6,30 +6,57 @@ CREATE OR REPLACE FUNCTION public.get_public_invoice(_booking_id uuid)
 RETURNS json LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   res json;
+  b record;
+  t record;
 BEGIN
+  SELECT b_in.id, b_in.booking_no, b_in.invoice_no, b_in.invoice_issued_at,
+         b_in.check_in, b_in.check_out, b_in.discount, b_in.tax_rate, b_in.gst_bill,
+         b_in.rate,
+         g.name AS guest_name, g.mobile AS guest_mobile
+  INTO b
+  FROM public.bookings b_in
+  LEFT JOIN public.guests g ON g.id = b_in.guest_id
+  WHERE b_in.id = _booking_id;
+
+  IF b.id IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT
+    (b.check_out - b.check_in)::int AS nights,
+    (b.rate * (b.check_out - b.check_in)::numeric)::numeric(12,2) AS room_charges,
+    COALESCE(c.extras, 0::numeric)::numeric(12,2) AS extra_charges,
+    b.discount,
+    round(GREATEST(b.rate * (b.check_out - b.check_in)::numeric + COALESCE(c.taxable_extras, 0::numeric) - b.discount, 0::numeric) * b.tax_rate / 100::numeric, 2) AS tax_amount,
+    round(b.rate * (b.check_out - b.check_in)::numeric + COALESCE(c.extras, 0::numeric) - b.discount + GREATEST(b.rate * (b.check_out - b.check_in)::numeric + COALESCE(c.taxable_extras, 0::numeric) - b.discount, 0::numeric) * b.tax_rate / 100::numeric, 2) AS total,
+    COALESCE(p.paid, 0::numeric)::numeric(12,2) AS paid,
+    COALESCE(p.refunded, 0::numeric)::numeric(12,2) AS refunded
+  INTO t
+  FROM (SELECT 1) _dummy
+  LEFT JOIN (
+    SELECT sum(amount) AS extras, sum(amount) FILTER (WHERE taxable) AS taxable_extras
+    FROM public.booking_charges WHERE booking_id = _booking_id
+  ) c ON true
+  LEFT JOIN (
+    SELECT sum(amount) FILTER (WHERE kind = 'payment') AS paid,
+           sum(amount) FILTER (WHERE kind = 'refund') AS refunded
+    FROM public.payments WHERE booking_id = _booking_id
+  ) p ON true;
+
   SELECT json_build_object(
-    'booking', (
-      SELECT json_build_object(
-        'id', b.id,
-        'booking_no', b.booking_no,
-        'invoice_no', b.invoice_no,
-        'invoice_issued_at', b.invoice_issued_at,
-        'check_in', b.check_in,
-        'check_out', b.check_out,
-        'discount', b.discount,
-        'tax_rate', b.tax_rate,
-        'gst_bill', b.gst_bill,
-        'guests', json_build_object('name', g.name, 'mobile', g.mobile)
-      )
-      FROM public.bookings b
-      LEFT JOIN public.guests g ON g.id = b.guest_id
-      WHERE b.id = _booking_id
+    'booking', json_build_object(
+      'id', b.id,
+      'booking_no', b.booking_no,
+      'invoice_no', b.invoice_no,
+      'invoice_issued_at', b.invoice_issued_at,
+      'check_in', b.check_in,
+      'check_out', b.check_out,
+      'discount', b.discount,
+      'tax_rate', b.tax_rate,
+      'gst_bill', b.gst_bill,
+      'guests', json_build_object('name', b.guest_name, 'mobile', b.guest_mobile)
     ),
-    'totals', (
-      SELECT row_to_json(bt)
-      FROM public.booking_totals bt
-      WHERE bt.booking_id = _booking_id
-    ),
+    'totals', row_to_json(t),
     'charges', (
       SELECT COALESCE(json_agg(row_to_json(bc)), '[]'::json)
       FROM (SELECT id, booking_id, description, amount, taxable, created_at FROM public.booking_charges WHERE booking_id = _booking_id ORDER BY created_at) bc
@@ -43,9 +70,8 @@ BEGIN
         json_build_object(
           'id', br.id,
           'rate', br.rate,
-          'room_category_name', COALESCE(rc.name, br.room_category_name, 'Room'),
           'rooms', json_build_object(
-            'room_categories', json_build_object('name', COALESCE(rc.name, br.room_category_name, 'Room'), 'description', rc.description)
+            'room_categories', json_build_object('name', COALESCE(rc.name, 'Room'), 'description', rc.description)
           )
         )
       ), '[]'::json)
@@ -63,19 +89,23 @@ BEGIN
         'email', email,
         'gstin', gstin,
         'currency', currency,
+        'check_in_time', check_in_time,
+        'check_out_time', check_out_time,
         'tax_label', tax_label,
         'receipt_footer', receipt_footer,
-        'guarantee_policy', guarantee_policy,
+        'terms', terms,
         'cancellation_policy', cancellation_policy,
-        'arrival_departure_policy', arrival_departure_policy,
+        'photo_id_policy', photo_id_policy,
         'policy_visibility', policy_visibility,
         'show_logo', show_logo,
-        'show_address', show_address
+        'show_address', show_address,
+        'show_gstin', show_gstin
       )
       FROM public.hotel_settings
       WHERE id = 1
     )
   ) INTO res;
+
   RETURN res;
 END;
 $$;
@@ -102,15 +132,17 @@ BEGIN
         'email', email,
         'gstin', gstin,
         'currency', currency,
+        'check_in_time', check_in_time,
+        'check_out_time', check_out_time,
         'tax_label', tax_label,
         'receipt_footer', receipt_footer,
-        'guarantee_policy', guarantee_policy,
+        'terms', terms,
         'cancellation_policy', cancellation_policy,
-        'arrival_departure_policy', arrival_departure_policy,
         'photo_id_policy', photo_id_policy,
         'policy_visibility', policy_visibility,
         'show_logo', show_logo,
-        'show_address', show_address
+        'show_address', show_address,
+        'show_gstin', show_gstin
       )
       FROM public.hotel_settings
       WHERE id = 1
