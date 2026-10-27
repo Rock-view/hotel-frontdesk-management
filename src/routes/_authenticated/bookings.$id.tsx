@@ -179,8 +179,43 @@ function BookingDetail() {
             </div>
           </div>
 
-          <ExtrasCard bookingId={id} active={isActive} extras={extras} charges={charges} nights={Number(t?.nights ?? 1)} guests={b.adults + b.children}
-            cur={cur} isOwner={!!me.data?.isOwner} onAddOther={() => setChargeOpen(true)} onDone={refresh} />
+          {charges.length > 0 && (
+            <div className="rounded-xl border bg-card">
+              <div className="flex items-center justify-between border-b p-4">
+                <h2 className="font-semibold">Charges & Extras ({charges.length})</h2>
+                {isActive && me.data?.isOwner && (
+                  <Button size="sm" variant="outline" onClick={() => setChargeOpen(true)}>Add charge</Button>
+                )}
+              </div>
+              <div className="divide-y">
+                {charges.map((c) => (
+                  <div key={c.id} className="flex items-center justify-between p-4 text-sm">
+                    <div>
+                      <span className="font-medium">{c.description}</span>
+                      {c.qty > 1 && <span className="ml-2 text-xs text-muted-foreground">× {c.qty}</span>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{money(c.amount, cur)}</span>
+                      {isActive && me.data?.isOwner && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-destructive hover:bg-destructive/10"
+                          onClick={async () => {
+                            const { error } = await supabase.rpc("remove_booking_charge", { _charge_id: c.id });
+                            if (error) toast.error(errMsg(error));
+                            else refresh();
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {guest && <GuestDocs guestId={guest.id} bookingId={id} />}
 
@@ -309,76 +344,7 @@ function Row({ l, r, bold }: { l: string; r: string; bold?: boolean }) {
   return <div className={`flex justify-between py-1 text-sm ${bold ? "font-semibold" : ""}`}><span>{l}</span><span>{r}</span></div>;
 }
 
-type Extra = { id: string; name: string; price: number; unit: string };
-type Charge = { id: string; description: string; amount: number; extra_id: string | null; qty: number };
-function ExtrasCard({ bookingId, active, extras, charges, nights, guests, cur, isOwner, onAddOther, onDone }: {
-  bookingId: string; active: boolean; extras: Extra[]; charges: Charge[]; nights: number; guests: number; cur: string; isOwner: boolean; onAddOther: () => void; onDone: () => void;
-}) {
-  const [qty, setQty] = useState<Record<string, number>>({});
-  const [busy, setBusy] = useState(false);
-  async function toggle(e: Extra, on: boolean) {
-    setBusy(true);
-    if (on) {
-      const { error } = await supabase.rpc("add_booking_extra", { _booking_id: bookingId, _extra_id: e.id, _qty: qty[e.id] ?? suggestedQty(e.unit, nights, guests) });
-      if (error) toast.error(errMsg(error));
-    } else {
-      for (const c of charges.filter((c) => c.extra_id === e.id)) {
-        const { error } = await supabase.rpc("remove_booking_charge", { _charge_id: c.id });
-        if (error) { toast.error(errMsg(error)); break; }
-      }
-    }
-    setBusy(false);
-    onDone();
-  }
-  async function removeOther(id: string) {
-    const { error } = await supabase.rpc("remove_booking_charge", { _charge_id: id });
-    if (error) toast.error(errMsg(error)); else onDone();
-  }
-  const others = charges.filter((c) => !c.extra_id);
-  return (
-    <div className="rounded-xl border bg-card">
-      <div className="flex items-center justify-between border-b p-4">
-        <h2 className="font-semibold">Extras <span className="text-sm font-normal text-muted-foreground">(optional)</span></h2>
-        {active && isOwner && <Button size="sm" variant="outline" onClick={onAddOther}>Other charge</Button>}
-      </div>
-      <div className="divide-y">
-        {extras.length === 0 && <p className="p-4 text-sm text-muted-foreground">No extras set up. The owner can add them in Settings.</p>}
-        {extras.map((e) => {
-          const added = charges.filter((c) => c.extra_id === e.id);
-          const on = added.length > 0;
-          const amount = added.reduce((a, c) => a + Number(c.amount), 0);
-          return (
-            <div key={e.id} className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm">
-              <label className="flex items-center gap-3">
-                <Checkbox checked={on} disabled={!active || busy} onCheckedChange={(v) => toggle(e, !!v)} />
-                <span>
-                  <span className="font-medium">{e.name}</span>
-                  <span className="block text-xs text-muted-foreground">{money(e.price, cur)} {EXTRA_UNITS[e.unit] ?? ""}</span>
-                </span>
-              </label>
-              {on ? (
-                <span className="font-medium">{added.map((c) => `× ${c.qty}`).join(", ")} · {money(amount, cur)}</span>
-              ) : active ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Qty</span>
-                  <Input type="number" min={1} className="h-8 w-20" value={qty[e.id] ?? suggestedQty(e.unit, nights, guests)} onChange={(ev) => setQty({ ...qty, [e.id]: Math.max(1, Number(ev.target.value)) })} />
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-        {others.map((c) => (
-          <div key={c.id} className="flex items-center justify-between p-4 text-sm">
-            <span>{c.description}</span>
-            <span className="flex items-center gap-2">{money(c.amount, cur)}
-              {active && isOwner && <Button size="sm" variant="ghost" onClick={() => removeOther(c.id)}>Remove</Button>}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+
 
 function PaymentDialog({ kind, onClose, bookingId, methods, suggested, onDone }: { kind: null | "payment" | "refund"; onClose: () => void; bookingId: string; methods: string[]; suggested: number; onDone: () => void }) {
   const [amount, setAmount] = useState("");
