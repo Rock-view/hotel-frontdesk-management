@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
@@ -9,9 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { AmountInput } from "@/components/AmountInput";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { money } from "@/lib/format";
-import { suggestedQty } from "@/lib/booking";
+import { suggestedQty, EXTRA_UNITS } from "@/lib/booking";
 import { useSettings } from "@/hooks/use-me";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -48,7 +48,9 @@ export function EditQuotationDialog({
   });
 
   const [roomRates, setRoomRates] = useState<number[]>([]);
-  const [charges, setCharges] = useState<QuotationCharge[]>([]);
+  const [selectedExtras, setSelectedExtras] = useState<Record<string, boolean>>({});
+  const [extraQty, setExtraQty] = useState<Record<string, number>>({});
+  const [customCharges, setCustomCharges] = useState<QuotationCharge[]>([]);
   const [busy, setBusy] = useState(false);
 
   const extrasQuery = useQuery({
@@ -70,9 +72,30 @@ export function EditQuotationDialog({
         notes: q.notes || "",
       });
       setRoomRates((q.rooms || []).map((r) => r.rate));
-      setCharges((q.charges || []).map((c) => ({ ...c, taxable: c.taxable !== false })));
+
+      const activeExtras = extrasQuery.data ?? [];
+      const initSelected: Record<string, boolean> = {};
+      const initQty: Record<string, number> = {};
+      const custom: QuotationCharge[] = [];
+
+      (q.charges || []).forEach((c) => {
+        const matched = activeExtras.find((e) =>
+          c.description.toLowerCase().startsWith(e.name.toLowerCase())
+        );
+        if (matched) {
+          initSelected[matched.id] = true;
+          const calcQty = Math.round(Number(c.amount) / (Number(matched.price) || 1));
+          initQty[matched.id] = calcQty > 0 ? calcQty : 1;
+        } else {
+          custom.push({ ...c, taxable: c.taxable !== false });
+        }
+      });
+
+      setSelectedExtras(initSelected);
+      setExtraQty(initQty);
+      setCustomCharges(custom);
     }
-  }, [q]);
+  }, [q, extrasQuery.data]);
 
   if (!q) return null;
 
@@ -81,35 +104,31 @@ export function EditQuotationDialog({
     rate: roomRates[i] ?? r.rate,
   }));
 
+  const effectiveCharges = useMemo(() => {
+    const stayNights = Math.max(1, q?.nights ?? 1);
+    const guests = Math.max(1, f.adults + f.children);
+    const fromExtras: QuotationCharge[] = (extrasQuery.data ?? [])
+      .filter((e) => selectedExtras[e.id])
+      .map((e) => {
+        const qty = extraQty[e.id] ?? suggestedQty(e.unit, stayNights, guests);
+        return {
+          description: `${e.name}${qty > 1 ? ` (×${qty})` : ""}`,
+          amount: Number(e.price) * qty,
+          taxable: true,
+        };
+      });
+    return [...fromExtras, ...customCharges];
+  }, [extrasQuery.data, selectedExtras, extraQty, q?.nights, f.adults, f.children, customCharges]);
+
   const taxRate = f.gst_bill ? (q.tax_rate > 0 ? q.tax_rate : defaultTax) : 0;
   const breakdown = calculateQuotationBreakdown({
     rooms: updatedRooms,
     nights: q.nights,
-    charges,
+    charges: effectiveCharges,
     discount: f.discount,
     gst_bill: f.gst_bill,
     gst_pct: taxRate,
   });
-
-  function addExtraCharge(extra: { name: string; price: number; unit: string }) {
-    const guests = Math.max(1, f.adults + f.children);
-    const n = Math.max(1, q!.nights);
-    const qty = suggestedQty(extra.unit, n, guests);
-    const unitSuffix =
-      extra.unit === "per_night"
-        ? ` (${n}nt)`
-        : extra.unit === "per_person_night"
-          ? ` (${guests}pax × ${n}nt)`
-          : "";
-    setCharges((prev) => [
-      ...prev,
-      {
-        description: `${extra.name}${unitSuffix}`,
-        amount: Number(extra.price) * qty,
-        taxable: true,
-      },
-    ]);
-  }
 
   async function handleSave() {
     if (!f.guest_name.trim() || !f.guest_mobile.trim()) {
@@ -140,7 +159,7 @@ export function EditQuotationDialog({
           total: breakdown.total,
           notes: f.notes || null,
           rooms: updatedRooms,
-          charges,
+          charges: effectiveCharges,
         },
         q!.id
       );
@@ -214,96 +233,137 @@ export function EditQuotationDialog({
             ))}
           </div>
 
-          {/* Extra Charges / Add-ons */}
+          {/* Extras from Settings (Checklist) */}
           <div className="space-y-2 rounded-lg border p-3 bg-muted/20">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Label className="font-semibold">Extra Charges & Add-ons</Label>
-              <div className="flex items-center gap-2">
-                {(extrasQuery.data ?? []).length > 0 && (
-                  <Select
-                    value=""
-                    onValueChange={(id) => {
-                      const item = extrasQuery.data?.find((e) => e.id === id);
-                      if (item) addExtraCharge(item);
-                    }}
-                  >
-                    <SelectTrigger className="h-7 w-[165px] text-xs">
-                      <SelectValue placeholder="Add from Extras…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {extrasQuery.data?.map((e) => (
-                        <SelectItem key={e.id} value={e.id} className="text-xs">
-                          {e.name} ({money(e.price, cur)}{e.unit === "per_night" ? "/nt" : e.unit === "per_person_night" ? "/pax/nt" : ""})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs"
-                  onClick={() => setCharges([...charges, { description: "Extra Charge", amount: 0, taxable: true }])}
-                >
-                  <Plus className="mr-1 h-3.5 w-3.5" /> Custom
-                </Button>
+            <div className="flex items-center justify-between pb-1">
+              <div>
+                <Label className="font-semibold">Extras (Hotel Settings)</Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Check any extras from Settings (e.g. Extra Bed, CP Plan) to include in quotation.
+                </p>
               </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-6 text-xs px-2"
+                onClick={() => setCustomCharges([...customCharges, { description: "Custom Service", amount: 0, taxable: true }])}
+              >
+                <Plus className="mr-1 h-3.5 w-3.5" /> Other charge
+              </Button>
             </div>
-            {charges.length === 0 ? (
-              <div className="text-xs text-muted-foreground py-1">No extra charges quoted. Choose from hotel extras above or add custom items.</div>
-            ) : (
-              <div className="space-y-2">
-                {charges.map((c, idx) => (
-                  <div key={idx} className="flex flex-wrap items-center gap-2 rounded border bg-card p-2 text-xs">
-                    <Input
-                      className="h-8 flex-1 min-w-[120px] text-xs"
-                      placeholder="Description"
-                      value={c.description}
-                      onChange={(e) => {
-                        setCharges((prev) =>
-                          prev.map((item, i) => (i === idx ? { ...item, description: e.target.value } : item))
+
+            <div className="divide-y rounded-md border bg-card text-xs">
+              {(extrasQuery.data ?? []).length === 0 ? (
+                <p className="p-3 text-muted-foreground">No extras set up in Settings.</p>
+              ) : (
+                (extrasQuery.data ?? []).map((e) => {
+                  const stayNights = Math.max(1, q!.nights);
+                  const guests = Math.max(1, f.adults + f.children);
+                  const defaultQ = suggestedQty(e.unit, stayNights, guests);
+                  const isChecked = !!selectedExtras[e.id];
+                  const currentQty = extraQty[e.id] ?? defaultQ;
+                  const lineTotal = Number(e.price) * currentQty;
+
+                  return (
+                    <div key={e.id} className="flex flex-wrap items-center justify-between gap-2 p-2.5">
+                      <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                        <Checkbox
+                          checked={isChecked}
+                          onCheckedChange={(val) => {
+                            setSelectedExtras((prev) => ({ ...prev, [e.id]: !!val }));
+                            if (!extraQty[e.id]) {
+                              setExtraQty((prev) => ({ ...prev, [e.id]: defaultQ }));
+                            }
+                          }}
+                        />
+                        <span>
+                          <span className="font-medium text-xs">{e.name}</span>
+                          <span className="block text-[11px] text-muted-foreground">
+                            {money(e.price, cur)} {EXTRA_UNITS[e.unit] ?? ""}
+                          </span>
+                        </span>
+                      </label>
+
+                      {isChecked ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-muted-foreground">Qty</span>
+                          <Input
+                            type="number"
+                            min={1}
+                            className="h-7 w-16 text-center text-xs"
+                            value={currentQty}
+                            onChange={(ev) =>
+                              setExtraQty((prev) => ({
+                                ...prev,
+                                [e.id]: Math.max(1, Number(ev.target.value) || 1),
+                              }))
+                            }
+                          />
+                          <span className="font-semibold text-xs w-20 text-right">
+                            {money(lineTotal, cur)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground">
+                          {money(Number(e.price) * defaultQ, cur)} ({defaultQ} {e.unit === "per_person_night" ? "pax·nt" : e.unit === "per_night" ? "nt" : ""})
+                        </span>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+
+              {/* Custom charges if any */}
+              {customCharges.map((c, idx) => (
+                <div key={idx} className="flex flex-wrap items-center gap-2 p-2.5 bg-muted/20">
+                  <Input
+                    className="h-7 flex-1 min-w-[100px] text-xs"
+                    placeholder="Description"
+                    value={c.description}
+                    onChange={(e) => {
+                      setCustomCharges((prev) =>
+                        prev.map((item, i) => (i === idx ? { ...item, description: e.target.value } : item))
+                      );
+                    }}
+                  />
+                  <div className="flex items-center gap-1">
+                    <span className="text-muted-foreground">{cur === "INR" ? "₹" : cur}</span>
+                    <AmountInput
+                      className="h-7 w-20 text-xs"
+                      value={c.amount}
+                      onValueChange={(val) => {
+                        setCustomCharges((prev) =>
+                          prev.map((item, i) => (i === idx ? { ...item, amount: val } : item))
                         );
                       }}
                     />
-                    <div className="flex items-center gap-1">
-                      <span className="text-muted-foreground">{cur === "INR" ? "₹" : cur}</span>
-                      <AmountInput
-                        className="h-8 w-24 text-xs"
-                        value={c.amount}
-                        onValueChange={(val) => {
-                          setCharges((prev) =>
-                            prev.map((item, i) => (i === idx ? { ...item, amount: val } : item))
-                          );
-                        }}
-                      />
-                    </div>
-                    <label className="flex items-center gap-1.5 cursor-pointer text-xs">
-                      <Switch
-                        checked={c.taxable !== false}
-                        onCheckedChange={(val) => {
-                          setCharges((prev) =>
-                            prev.map((item, i) => (i === idx ? { ...item, taxable: val } : item))
-                          );
-                        }}
-                      />
-                      <span className={c.taxable !== false ? "text-primary font-medium" : "text-muted-foreground"}>
-                        {c.taxable !== false ? "Taxable" : "Non-taxable"}
-                      </span>
-                    </label>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                      onClick={() => setCharges((prev) => prev.filter((_, i) => i !== idx))}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
                   </div>
-                ))}
-              </div>
-            )}
+                  <label className="flex items-center gap-1 cursor-pointer text-[11px]">
+                    <Switch
+                      checked={c.taxable !== false}
+                      onCheckedChange={(val) => {
+                        setCustomCharges((prev) =>
+                          prev.map((item, i) => (i === idx ? { ...item, taxable: val } : item))
+                        );
+                      }}
+                    />
+                    <span className={c.taxable !== false ? "text-primary font-medium" : "text-muted-foreground"}>
+                      {c.taxable !== false ? "Tax" : "No Tax"}
+                    </span>
+                  </label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                    onClick={() => setCustomCharges((prev) => prev.filter((_, i) => i !== idx))}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
