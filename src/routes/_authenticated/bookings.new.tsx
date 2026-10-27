@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useMe, useSettings } from "@/hooks/use-me";
@@ -14,8 +15,8 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { addDaysISO, errMsg, money, nights, todayISO } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { BOOKING_SOURCES, bookingTotal, groupRoomsByCategory } from "@/lib/booking";
-import { saveQuotation, calculateQuotationBreakdown } from "@/lib/quotations";
+import { BOOKING_SOURCES, bookingTotal, groupRoomsByCategory, suggestedQty } from "@/lib/booking";
+import { saveQuotation, calculateQuotationBreakdown, type QuotationCharge } from "@/lib/quotations";
 
 export const Route = createFileRoute("/_authenticated/bookings/new")({
   head: () => ({ meta: [{ title: "New booking — Front Desk" }, { name: "description", content: "Create a walk-in or advance booking." }, { property: "og:title", content: "New booking — Front Desk" }, { property: "og:description", content: "Create a walk-in or advance booking." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
@@ -34,9 +35,16 @@ function NewBooking() {
     source: "Walk-in", notes: "", advance: 0, advance_method: "",
   });
   const [selected, setSelected] = useState<Record<string, number>>({});
+  const [quotationCharges, setQuotationCharges] = useState<QuotationCharge[]>([]);
   const [guestId, setGuestId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }));
+
+  const extrasQuery = useQuery({
+    queryKey: ["extras-active"],
+    queryFn: async () =>
+      (await supabase.from("extras").select("*").eq("active", true).order("sort").order("name")).data ?? [],
+  });
 
   useEffect(() => {
     if (settings.data) setF((p) => ({ ...p, advance_method: p.advance_method || settings.data!.payment_methods[0] || "Cash" }));
@@ -85,6 +93,39 @@ function NewBooking() {
     set(k, v); setSelected({});
   }
 
+  function addQuotationExtra(extra: { name: string; price: number; unit: string }) {
+    const guests = Math.max(1, f.adults + f.children);
+    const stayNights = Math.max(1, n);
+    const qty = suggestedQty(extra.unit, stayNights, guests);
+    const unitSuffix =
+      extra.unit === "per_night"
+        ? ` (${stayNights}nt)`
+        : extra.unit === "per_person_night"
+          ? ` (${guests}pax × ${stayNights}nt)`
+          : "";
+    setQuotationCharges((prev) => [
+      ...prev,
+      {
+        description: `${extra.name}${unitSuffix}`,
+        amount: Number(extra.price) * qty,
+        taxable: true,
+      },
+    ]);
+  }
+
+  const quotationBreakdown = useMemo(() => {
+    const list = Object.entries(selected);
+    const quotedRooms = list.map(([id, rate]) => ({ rate: Number(rate) }));
+    return calculateQuotationBreakdown({
+      rooms: quotedRooms,
+      nights: n,
+      charges: quotationCharges,
+      discount: f.discount,
+      gst_bill: f.gst_bill,
+      gst_pct: f.gst_bill ? taxRate : 0,
+    });
+  }, [selected, n, quotationCharges, f.discount, f.gst_bill, taxRate]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const list = Object.entries(selected);
@@ -98,8 +139,26 @@ function NewBooking() {
       _discount: f.discount, _gst_bill: f.gst_bill, _source: f.source, _notes: f.notes,
       _advance: isFuture ? f.advance : 0, _advance_method: f.advance_method,
     });
+    if (error) {
+      setBusy(false);
+      toast.error(errMsg(error));
+      return;
+    }
+
+    if (quotationCharges.length > 0 && data) {
+      for (const chg of quotationCharges) {
+        if (chg.amount > 0) {
+          await supabase.from("booking_charges").insert({
+            booking_id: data as string,
+            description: chg.description,
+            amount: chg.amount,
+            taxable: chg.taxable !== false,
+          });
+        }
+      }
+    }
+
     setBusy(false);
-    if (error) { toast.error(errMsg(error)); return; }
     toast.success(isFuture ? "Booking saved" : "Booking saved and guest checked in");
     navigate({ to: "/bookings/$id", params: { id: data as string } });
   }
@@ -137,7 +196,7 @@ function NewBooking() {
       const breakdown = calculateQuotationBreakdown({
         rooms: quotedRooms,
         nights: n,
-        charges: [],
+        charges: quotationCharges,
         discount: f.discount,
         gst_bill: f.gst_bill,
         gst_pct: f.gst_bill ? taxRate : 0,
@@ -161,7 +220,7 @@ function NewBooking() {
         total: breakdown.total,
         notes: f.notes || null,
         rooms: quotedRooms,
-        charges: [],
+        charges: quotationCharges,
       });
 
       toast.success(`Quotation ${saved.quotation_no} created successfully!`);
@@ -281,10 +340,113 @@ function NewBooking() {
         <Field label="Notes" className="mt-4"><Textarea value={f.notes} onChange={(e) => set("notes", e.target.value)} /></Field>
       </Section>
 
+      <Section title="Extras & Add-ons (For Quotation & Estimates)">
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              Add extra services (Extra Bed, CP Plan, Meals) to include in the customer quotation.
+            </p>
+            <div className="flex items-center gap-2">
+              {(extrasQuery.data ?? []).length > 0 && (
+                <Select
+                  value=""
+                  onValueChange={(id) => {
+                    const item = extrasQuery.data?.find((e) => e.id === id);
+                    if (item) addQuotationExtra(item);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-[165px] text-xs">
+                    <SelectValue placeholder="Add from Extras…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {extrasQuery.data?.map((e) => (
+                      <SelectItem key={e.id} value={e.id} className="text-xs">
+                        {e.name} ({money(e.price, cur)}{e.unit === "per_night" ? "/nt" : e.unit === "per_person_night" ? "/pax/nt" : ""})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={() => setQuotationCharges([...quotationCharges, { description: "Extra Charge", amount: 0, taxable: true }])}
+              >
+                <Plus className="mr-1 h-3.5 w-3.5" /> Custom
+              </Button>
+            </div>
+          </div>
+
+          {quotationCharges.length === 0 ? (
+            <p className="py-1 text-xs text-muted-foreground italic">
+              No extras added yet. Use the dropdown above to add configured extras (e.g. Extra Bed, CP Plan) or custom items.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {quotationCharges.map((c, idx) => (
+                <div key={idx} className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 text-xs">
+                  <Input
+                    className="h-8 flex-1 min-w-[120px] text-xs"
+                    placeholder="Description"
+                    value={c.description}
+                    onChange={(e) => {
+                      setQuotationCharges((prev) =>
+                        prev.map((item, i) => (i === idx ? { ...item, description: e.target.value } : item))
+                      );
+                    }}
+                  />
+                  <div className="flex items-center gap-1">
+                    <span className="text-muted-foreground">{cur === "INR" ? "₹" : cur}</span>
+                    <AmountInput
+                      className="h-8 w-24 text-xs"
+                      value={c.amount}
+                      onValueChange={(val) => {
+                        setQuotationCharges((prev) =>
+                          prev.map((item, i) => (i === idx ? { ...item, amount: val } : item))
+                        );
+                      }}
+                    />
+                  </div>
+                  <label className="flex items-center gap-1.5 cursor-pointer text-xs">
+                    <Switch
+                      checked={c.taxable !== false}
+                      onCheckedChange={(val) => {
+                        setQuotationCharges((prev) =>
+                          prev.map((item, i) => (i === idx ? { ...item, taxable: val } : item))
+                        );
+                      }}
+                    />
+                    <span className={c.taxable !== false ? "text-primary font-medium" : "text-muted-foreground"}>
+                      {c.taxable !== false ? "Taxable" : "Non-taxable"}
+                    </span>
+                  </label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                    onClick={() => setQuotationCharges((prev) => prev.filter((_, i) => i !== idx))}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Section>
+
       <div className="sticky bottom-16 z-10 flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card p-4 shadow-lg lg:bottom-4">
         <div>
           <div className="text-xs text-muted-foreground">Estimated total</div>
           <div className="font-display text-xl font-semibold">{money(total, cur)}</div>
+          {quotationCharges.length > 0 && (
+            <div className="text-xs text-muted-foreground">
+              Quotation (with extras): <strong className="text-foreground">{money(quotationBreakdown.total, cur)}</strong>
+            </div>
+          )}
           {isFuture && f.advance > 0 && <div className="text-xs text-muted-foreground">Balance {money(total - f.advance, cur)}</div>}
         </div>
         <div className="flex flex-wrap items-center gap-2">

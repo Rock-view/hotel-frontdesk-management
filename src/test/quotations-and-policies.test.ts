@@ -171,6 +171,31 @@ describe("quotation calculations & breakdown", () => {
     expect(b.total).toBe(3100);
   });
 
+  it("calculates quotation with hotel extras (Extra Bed, CP Plan) at 5% GST correctly", () => {
+    // 2 nights, 2 guests. Room rate: 2000/night = 4000
+    // Extra Bed: 500/night * 2 = 1000 (taxable)
+    // CP Plan: 200 * 2 pax * 2 nights = 800 (taxable)
+    // 5% GST on (4000 + 1000 + 800) = 5% of 5800 = 290
+    // Total = 5800 + 290 = 6090
+    const b = calculateQuotationBreakdown({
+      rooms: [{ category_name: "Deluxe", rate: 2000 }],
+      nights: 2,
+      charges: [
+        { description: "Extra Bed (2nt)", amount: 1000, taxable: true },
+        { description: "CP Plan (2pax × 2nt)", amount: 800, taxable: true },
+      ],
+      gst_bill: true,
+      gst_pct: 5,
+    });
+
+    expect(b.roomTotal).toBe(4000);
+    expect(b.extrasTotal).toBe(1800);
+    expect(b.taxableExtras).toBe(1800);
+    expect(b.taxableBase).toBe(5800);
+    expect(b.taxAmount).toBe(290);
+    expect(b.total).toBe(6090);
+  });
+
   it("pdf options configures html2canvas with oklch sanitizer and standard A4 dimensions", async () => {
     const { getPdfOptions } = await import("@/lib/pdf");
     const opt = getPdfOptions("test.pdf");

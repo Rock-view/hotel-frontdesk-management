@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { AmountInput } from "@/components/AmountInput";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { money } from "@/lib/format";
+import { suggestedQty } from "@/lib/booking";
+import { useSettings } from "@/hooks/use-me";
+import { supabase } from "@/integrations/supabase/client";
 import {
   saveQuotation,
   calculateQuotationBreakdown,
@@ -27,6 +32,10 @@ export function EditQuotationDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const settings = useSettings();
+  const cur = settings.data?.currency || "INR";
+  const defaultTax = Number(settings.data?.default_tax_rate ?? 0);
+
   const [f, setF] = useState({
     guest_name: "",
     guest_mobile: "",
@@ -41,6 +50,12 @@ export function EditQuotationDialog({
   const [roomRates, setRoomRates] = useState<number[]>([]);
   const [charges, setCharges] = useState<QuotationCharge[]>([]);
   const [busy, setBusy] = useState(false);
+
+  const extrasQuery = useQuery({
+    queryKey: ["extras-active"],
+    queryFn: async () =>
+      (await supabase.from("extras").select("*").eq("active", true).order("sort").order("name")).data ?? [],
+  });
 
   useEffect(() => {
     if (q) {
@@ -66,7 +81,7 @@ export function EditQuotationDialog({
     rate: roomRates[i] ?? r.rate,
   }));
 
-  const taxRate = f.gst_bill ? (q.tax_rate || 12) : 0;
+  const taxRate = f.gst_bill ? (q.tax_rate > 0 ? q.tax_rate : defaultTax) : 0;
   const breakdown = calculateQuotationBreakdown({
     rooms: updatedRooms,
     nights: q.nights,
@@ -75,6 +90,26 @@ export function EditQuotationDialog({
     gst_bill: f.gst_bill,
     gst_pct: taxRate,
   });
+
+  function addExtraCharge(extra: { name: string; price: number; unit: string }) {
+    const guests = Math.max(1, f.adults + f.children);
+    const n = Math.max(1, q!.nights);
+    const qty = suggestedQty(extra.unit, n, guests);
+    const unitSuffix =
+      extra.unit === "per_night"
+        ? ` (${n}nt)`
+        : extra.unit === "per_person_night"
+          ? ` (${guests}pax × ${n}nt)`
+          : "";
+    setCharges((prev) => [
+      ...prev,
+      {
+        description: `${extra.name}${unitSuffix}`,
+        amount: Number(extra.price) * qty,
+        taxable: true,
+      },
+    ]);
+  }
 
   async function handleSave() {
     if (!f.guest_name.trim() || !f.guest_mobile.trim()) {
@@ -181,20 +216,42 @@ export function EditQuotationDialog({
 
           {/* Extra Charges / Add-ons */}
           <div className="space-y-2 rounded-lg border p-3 bg-muted/20">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Label className="font-semibold">Extra Charges & Add-ons</Label>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs"
-                onClick={() => setCharges([...charges, { description: "Extra Charge", amount: 0, taxable: true }])}
-              >
-                <Plus className="mr-1 h-3.5 w-3.5" /> Add Charge
-              </Button>
+              <div className="flex items-center gap-2">
+                {(extrasQuery.data ?? []).length > 0 && (
+                  <Select
+                    value=""
+                    onValueChange={(id) => {
+                      const item = extrasQuery.data?.find((e) => e.id === id);
+                      if (item) addExtraCharge(item);
+                    }}
+                  >
+                    <SelectTrigger className="h-7 w-[165px] text-xs">
+                      <SelectValue placeholder="Add from Extras…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {extrasQuery.data?.map((e) => (
+                        <SelectItem key={e.id} value={e.id} className="text-xs">
+                          {e.name} ({money(e.price, cur)}{e.unit === "per_night" ? "/nt" : e.unit === "per_person_night" ? "/pax/nt" : ""})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={() => setCharges([...charges, { description: "Extra Charge", amount: 0, taxable: true }])}
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" /> Custom
+                </Button>
+              </div>
             </div>
             {charges.length === 0 ? (
-              <div className="text-xs text-muted-foreground py-1">No extra charges quoted.</div>
+              <div className="text-xs text-muted-foreground py-1">No extra charges quoted. Choose from hotel extras above or add custom items.</div>
             ) : (
               <div className="space-y-2">
                 {charges.map((c, idx) => (
@@ -210,7 +267,7 @@ export function EditQuotationDialog({
                       }}
                     />
                     <div className="flex items-center gap-1">
-                      <span className="text-muted-foreground">₹</span>
+                      <span className="text-muted-foreground">{cur === "INR" ? "₹" : cur}</span>
                       <AmountInput
                         className="h-8 w-24 text-xs"
                         value={c.amount}
@@ -269,29 +326,29 @@ export function EditQuotationDialog({
           <div className="space-y-1.5 border-t pt-3 text-xs">
             <div className="flex justify-between text-muted-foreground">
               <span>Room Charges ({q.nights} night{q.nights === 1 ? "" : "s"}):</span>
-              <span>{money(breakdown.roomTotal, "INR")}</span>
+              <span>{money(breakdown.roomTotal, cur)}</span>
             </div>
             {breakdown.extrasTotal > 0 && (
               <div className="flex justify-between text-muted-foreground">
-                <span>Extras (Taxable: {money(breakdown.taxableExtras, "INR")} · Non-taxable: {money(breakdown.nonTaxableExtras, "INR")}):</span>
-                <span>{money(breakdown.extrasTotal, "INR")}</span>
+                <span>Extras (Taxable: {money(breakdown.taxableExtras, cur)} · Non-taxable: {money(breakdown.nonTaxableExtras, cur)}):</span>
+                <span>{money(breakdown.extrasTotal, cur)}</span>
               </div>
             )}
             {Number(f.discount) > 0 && (
               <div className="flex justify-between text-muted-foreground">
                 <span>Discount:</span>
-                <span>− {money(f.discount, "INR")}</span>
+                <span>− {money(f.discount, cur)}</span>
               </div>
             )}
             {f.gst_bill && (
               <div className="flex justify-between text-muted-foreground">
-                <span>GST @ {taxRate}% (on {money(breakdown.taxableBase, "INR")}):</span>
-                <span>+ {money(breakdown.taxAmount, "INR")}</span>
+                <span>GST @ {taxRate}% (on {money(breakdown.taxableBase, cur)}):</span>
+                <span>+ {money(breakdown.taxAmount, cur)}</span>
               </div>
             )}
             <div className="flex items-center justify-between pt-1 font-semibold text-sm">
               <span>New estimated total:</span>
-              <span className="font-display text-lg text-primary">{money(breakdown.total, "INR")}</span>
+              <span className="font-display text-lg text-primary">{money(breakdown.total, cur)}</span>
             </div>
           </div>
         </div>
