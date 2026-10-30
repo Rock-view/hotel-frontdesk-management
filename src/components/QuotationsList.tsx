@@ -222,33 +222,40 @@ export function QuotationsList({ onConverted }: { onConverted?: (bookingId: stri
       )}
 
       {/* Dialogs */}
-      <ViewQuotationDialog
-        quotation={viewQuotation}
-        settings={settings.data}
-        open={!!viewQuotation}
-        onClose={() => setViewQuotation(null)}
-        onConvert={() => {
-          setConvertQuotation(viewQuotation);
-          setViewQuotation(null);
-        }}
-      />
+      {viewQuotation && (
+        <ViewQuotationDialog
+          quotation={viewQuotation}
+          settings={settings.data}
+          open={!!viewQuotation}
+          onClose={() => setViewQuotation(null)}
+          onConvert={() => {
+            const q = viewQuotation;
+            setViewQuotation(null);
+            setConvertQuotation(q);
+          }}
+        />
+      )}
 
-      <EditQuotationDialog
-        quotation={editQuotation}
-        open={!!editQuotation}
-        onClose={() => setEditQuotation(null)}
-        onDone={refresh}
-      />
+      {editQuotation && (
+        <EditQuotationDialog
+          quotation={editQuotation}
+          open={!!editQuotation}
+          onClose={() => setEditQuotation(null)}
+          onDone={refresh}
+        />
+      )}
 
-      <ConvertQuotationDialog
-        quotation={convertQuotation}
-        open={!!convertQuotation}
-        onClose={() => setConvertQuotation(null)}
-        onSuccess={(bookingId) => {
-          refresh();
-          if (onConverted) onConverted(bookingId);
-        }}
-      />
+      {convertQuotation && (
+        <ConvertQuotationDialog
+          quotation={convertQuotation}
+          open={!!convertQuotation}
+          onClose={() => setConvertQuotation(null)}
+          onSuccess={(bookingId) => {
+            refresh();
+            if (onConverted) onConverted(bookingId);
+          }}
+        />
+      )}
     </div>
   );
 }

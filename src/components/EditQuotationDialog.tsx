@@ -79,9 +79,10 @@ export function EditQuotationDialog({
       const custom: QuotationCharge[] = [];
 
       (q.charges || []).forEach((c) => {
-        const matched = activeExtras.find((e) =>
-          c.description.toLowerCase().startsWith(e.name.toLowerCase())
-        );
+        const desc = typeof c?.description === "string" ? c.description : "";
+        const matched = desc ? activeExtras.find((e) =>
+          e?.name && desc.toLowerCase().startsWith(e.name.toLowerCase())
+        ) : null;
         if (matched) {
           initSelected[matched.id] = true;
           const calcQty = Math.round(Number(c.amount) / (Number(matched.price) || 1));
@@ -96,13 +97,6 @@ export function EditQuotationDialog({
       setCustomCharges(custom);
     }
   }, [q, extrasQuery.data]);
-
-  if (!q) return null;
-
-  const updatedRooms = (q.rooms || []).map((r, i) => ({
-    ...r,
-    rate: roomRates[i] ?? r.rate,
-  }));
 
   const effectiveCharges = useMemo(() => {
     const stayNights = Math.max(1, q?.nights ?? 1);
@@ -119,6 +113,13 @@ export function EditQuotationDialog({
       });
     return [...fromExtras, ...customCharges];
   }, [extrasQuery.data, selectedExtras, extraQty, q?.nights, f.adults, f.children, customCharges]);
+
+  if (!q) return null;
+
+  const updatedRooms = (q.rooms || []).map((r, i) => ({
+    ...r,
+    rate: roomRates[i] ?? r.rate,
+  }));
 
   const taxRate = f.gst_bill ? (q.tax_rate > 0 ? q.tax_rate : defaultTax) : 0;
   const breakdown = calculateQuotationBreakdown({

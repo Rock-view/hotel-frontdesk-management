@@ -140,7 +140,6 @@ BEGIN
     cap := cap + maxg; total_rate := total_rate + COALESCE((rr->>'rate')::numeric,0);
     first_room := COALESCE(first_room, (rr->>'room_id')::uuid);
   END LOOP;
-  IF COALESCE(_adults,1) + COALESCE(_children,0) > cap THEN RAISE EXCEPTION 'Selected rooms allow at most % guests', cap; END IF;
   IF gid IS NULL THEN
     IF COALESCE(trim(_guest_name),'') = '' OR COALESCE(trim(_guest_mobile),'') = '' THEN RAISE EXCEPTION 'Guest name and mobile are required'; END IF;
     INSERT INTO public.guests(name, mobile, email) VALUES (trim(_guest_name), trim(_guest_mobile), NULLIF(trim(_guest_email),'')) RETURNING id INTO gid;
@@ -192,7 +191,6 @@ BEGIN
     SELECT sum(br.rate), sum(r.max_guests) INTO total_rate, cap
       FROM public.booking_rooms br JOIN public.rooms r ON r.id = br.room_id WHERE br.booking_id = _booking_id AND br.removed_at IS NULL;
     IF total_rate IS NULL THEN RAISE EXCEPTION 'A booking needs at least one room. Use Cancel booking instead.'; END IF;
-    IF COALESCE(_adults,1) + COALESCE(_children,0) > cap THEN RAISE EXCEPTION 'Rooms allow at most % guests', cap; END IF;
     SELECT br.room_id INTO first_room FROM public.booking_rooms br WHERE br.booking_id = _booking_id AND br.removed_at IS NULL ORDER BY br.created_at LIMIT 1;
     SELECT CASE WHEN COALESCE(_gst_bill,false) THEN CASE WHEN b.gst_bill AND b.tax_rate > 0 THEN b.tax_rate ELSE default_tax_rate END ELSE 0 END INTO tax FROM public.hotel_settings WHERE id = 1;
     PERFORM set_config('app.via_fn','on', true);

@@ -309,7 +309,19 @@ function BookingDetail() {
         </div>
       </div>
 
-      {modifyOpen && <ModifyDialog onClose={() => setModifyOpen(false)} b={b} rooms={activeRooms} cur={cur} defaultTax={Number(settings.data?.default_tax_rate ?? 0)} canDiscount={!!me.data?.can("discount")} onDone={refresh} />}
+      {modifyOpen && (
+        <ModifyDialog
+          onClose={() => setModifyOpen(false)}
+          b={b}
+          rooms={activeRooms}
+          charges={charges}
+          extras={extras}
+          cur={cur}
+          defaultTax={Number(settings.data?.default_tax_rate ?? 0)}
+          canDiscount={!!me.data?.can("discount")}
+          onDone={refresh}
+        />
+      )}
       {cancelOpen && <CancelDialog onClose={() => setCancelOpen(false)} bookingId={id} paid={Number(t?.paid ?? 0) - Number(t?.refunded ?? 0)} cur={cur} onDone={refresh} />}
       <PaymentDialog kind={payOpen} onClose={() => setPayOpen(null)} bookingId={id} methods={settings.data?.payment_methods ?? ["Cash"]} suggested={Math.abs(balance)} onDone={refresh} />
       <ChargeDialog open={chargeOpen} onClose={() => setChargeOpen(false)} bookingId={id} onDone={refresh} />
@@ -481,13 +493,84 @@ function CancelChargeChoice({ mode, setMode, charge, setCharge }: { mode: "none"
 
 type ModB = { id: string; check_in: string; check_out: string; adults: number; children: number; discount: number; gst_bill: boolean; status: string };
 type ModRoom = { room_id: string | null; rate: number; room_number?: string | null; rooms: { number: string } | null };
-function ModifyDialog({ onClose, b, rooms, cur, defaultTax, canDiscount, onDone }: { onClose: () => void; b: ModB; rooms: ModRoom[]; cur: string; defaultTax: number; canDiscount: boolean; onDone: () => void }) {
-  const [f, setF] = useState({ check_in: b.check_in, check_out: b.check_out, adults: b.adults, children: b.children, discount: Number(b.discount), gst_bill: b.gst_bill, reason: "" });
+type ModCharge = { id: string; description: string; amount: number; taxable: boolean; extra_id?: string | null; qty?: number | null };
+type ModExtra = { id: string; name: string; price: number; unit: any; active: boolean };
+
+function ModifyDialog({
+  onClose,
+  b,
+  rooms,
+  charges,
+  extras,
+  cur,
+  defaultTax,
+  canDiscount,
+  onDone,
+}: {
+  onClose: () => void;
+  b: ModB;
+  rooms: ModRoom[];
+  charges: ModCharge[];
+  extras: ModExtra[];
+  cur: string;
+  defaultTax: number;
+  canDiscount: boolean;
+  onDone: () => void;
+}) {
+  const [f, setF] = useState({
+    check_in: b.check_in,
+    check_out: b.check_out,
+    adults: b.adults,
+    children: b.children,
+    discount: Number(b.discount),
+    gst_bill: b.gst_bill,
+    reason: "",
+  });
   const [remove, setRemove] = useState<string[]>([]);
   const [add, setAdd] = useState<Record<string, number>>({});
   const [mode, setMode] = useState<"none" | "charge">("none");
   const [charge, setCharge] = useState(0);
   const [busy, setBusy] = useState(false);
+
+  // Initialize selected extras and quantities from existing charges
+  const [selectedExtras, setSelectedExtras] = useState<Record<string, boolean>>(() => {
+    const sel: Record<string, boolean> = {};
+    for (const e of extras) {
+      const matched = charges.find(
+        (c) =>
+          c.extra_id === e.id ||
+          (typeof c.description === "string" && c.description.toLowerCase().startsWith(e.name.toLowerCase()))
+      );
+      if (matched) {
+        sel[e.id] = true;
+      }
+    }
+    return sel;
+  });
+
+  const [extraQty, setExtraQty] = useState<Record<string, number>>(() => {
+    const qtys: Record<string, number> = {};
+    for (const e of extras) {
+      const matched = charges.find(
+        (c) =>
+          c.extra_id === e.id ||
+          (typeof c.description === "string" && c.description.toLowerCase().startsWith(e.name.toLowerCase()))
+      );
+      if (matched) {
+        let q = 1;
+        if (typeof matched.qty === "number" && matched.qty > 0) {
+          q = matched.qty;
+        } else {
+          const price = Number(e.price) || 1;
+          const computed = Math.round(Number(matched.amount) / price);
+          q = computed > 0 ? computed : 1;
+        }
+        qtys[e.id] = q;
+      }
+    }
+    return qtys;
+  });
+
   const datesChanged = f.check_in !== b.check_in || f.check_out !== b.check_out;
   const free = useQuery({
     queryKey: ["available", f.check_in, f.check_out],
@@ -495,19 +578,74 @@ function ModifyDialog({ onClose, b, rooms, cur, defaultTax, canDiscount, onDone 
     queryFn: async () => (await supabase.rpc("available_rooms", { _from: f.check_in, _to: f.check_out })).data ?? [],
   });
   const own = new Set(rooms.map((r) => r.room_id));
+
   async function save() {
     setBusy(true);
     const { error } = await supabase.rpc("modify_booking", {
-      _booking_id: b.id, _check_in: f.check_in, _check_out: f.check_out, _adults: f.adults, _children: f.children,
-      _discount: f.discount, _gst_bill: f.gst_bill, _remove_rooms: remove,
+      _booking_id: b.id,
+      _check_in: f.check_in,
+      _check_out: f.check_out,
+      _adults: f.adults,
+      _children: f.children,
+      _discount: f.discount,
+      _gst_bill: f.gst_bill,
+      _remove_rooms: remove,
       _add_rooms: Object.entries(add).map(([room_id, rate]) => ({ room_id, rate })),
-      _cancel_charge: mode === "charge" ? charge : 0, _reason: f.reason,
+      _cancel_charge: mode === "charge" ? charge : 0,
+      _reason: f.reason,
     });
+    if (error) {
+      setBusy(false);
+      toast.error(errMsg(error));
+      return;
+    }
+
+    // Synchronize Extras
+    try {
+      for (const e of extras) {
+        const initialCharge = charges.find(
+          (c) =>
+            c.extra_id === e.id ||
+            (typeof c.description === "string" && c.description.toLowerCase().startsWith(e.name.toLowerCase()))
+        );
+        const wasSelected = !!initialCharge;
+        let initialQ = 0;
+        if (initialCharge) {
+          if (typeof initialCharge.qty === "number" && initialCharge.qty > 0) {
+            initialQ = initialCharge.qty;
+          } else {
+            const price = Number(e.price) || 1;
+            const computed = Math.round(Number(initialCharge.amount) / price);
+            initialQ = computed > 0 ? computed : 1;
+          }
+        }
+        const isNowSelected = !!selectedExtras[e.id];
+        const newQ = extraQty[e.id] ?? 1;
+
+        if (wasSelected && !isNowSelected) {
+          await supabase.rpc("remove_booking_charge", { _charge_id: initialCharge.id });
+        } else if (!wasSelected && isNowSelected) {
+          await supabase.rpc("add_booking_extra", { _booking_id: b.id, _extra_id: e.id, _qty: newQ });
+        } else if (wasSelected && isNowSelected && initialQ !== newQ) {
+          await supabase.rpc("remove_booking_charge", { _charge_id: initialCharge.id });
+          await supabase.rpc("add_booking_extra", { _booking_id: b.id, _extra_id: e.id, _qty: newQ });
+        }
+      }
+    } catch (extraErr: unknown) {
+      console.error("Failed to synchronize extras:", extraErr);
+      toast.error("Booking updated, but some extras could not be modified");
+      setBusy(false);
+      onDone();
+      onClose();
+      return;
+    }
+
     setBusy(false);
-    if (error) { toast.error(errMsg(error)); return; }
     toast.success("Booking updated");
-    onDone(); onClose();
+    onDone();
+    onClose();
   }
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
@@ -550,6 +688,69 @@ function ModifyDialog({ onClose, b, rooms, cur, defaultTax, canDiscount, onDone 
           )}
 
           {remove.length > 0 && <CancelChargeChoice mode={mode} setMode={setMode} charge={charge} setCharge={setCharge} />}
+
+          {/* Extras Selection */}
+          <div className="space-y-2">
+            <Label>Extras</Label>
+            <p className="text-xs text-muted-foreground">
+              Extras configured in Settings (e.g. Extra Bed, CP Plan) — check to include or adjust quantity.
+            </p>
+            <div className="divide-y rounded-lg border bg-card">
+              {extras.length === 0 ? (
+                <p className="p-3 text-xs text-muted-foreground">No active extras configured in Settings.</p>
+              ) : (
+                extras.map((e) => {
+                  const stayNights = Math.max(1, Math.round((new Date(f.check_out).getTime() - new Date(f.check_in).getTime()) / 86400000) || 1);
+                  const guests = Math.max(1, f.adults + f.children);
+                  const defaultQ = suggestedQty(e.unit, stayNights, guests);
+                  const isChecked = !!selectedExtras[e.id];
+                  const currentQty = extraQty[e.id] ?? defaultQ;
+                  const lineTotal = Number(e.price) * currentQty;
+
+                  return (
+                    <div key={e.id} className="flex flex-wrap items-center justify-between gap-3 p-3 text-sm">
+                      <label className="flex items-center gap-3 cursor-pointer select-none">
+                        <Checkbox
+                          checked={isChecked}
+                          onCheckedChange={(val) => {
+                            setSelectedExtras((prev) => ({ ...prev, [e.id]: !!val }));
+                            if (!extraQty[e.id]) {
+                              setExtraQty((prev) => ({ ...prev, [e.id]: defaultQ }));
+                            }
+                          }}
+                        />
+                        <span>
+                          <span className="font-medium">{e.name}</span>
+                          <span className="block text-xs text-muted-foreground">
+                            {money(e.price, cur)} {EXTRA_UNITS[e.unit] ?? ""}
+                          </span>
+                        </span>
+                      </label>
+
+                      {isChecked && (
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <span>Qty:</span>
+                            <Input
+                              type="number"
+                              min={1}
+                              value={currentQty}
+                              onChange={(ev) => {
+                                const n = parseInt(ev.target.value, 10);
+                                setExtraQty((prev) => ({ ...prev, [e.id]: isNaN(n) ? 1 : Math.max(1, n) }));
+                              }}
+                              className="h-8 w-16 text-center"
+                            />
+                          </div>
+                          <span className="text-xs font-semibold">{money(lineTotal, cur)}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
 
           <div className="space-y-1.5"><Label>Reason for change</Label><Input value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} placeholder="Guest cancelled 2 rooms, extended stay…" /></div>
         </div>
