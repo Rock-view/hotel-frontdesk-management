@@ -22,7 +22,7 @@ END $$;
 -- 2. Quotations: immutable QR lock columns
 ALTER TABLE public.quotations
   ADD COLUMN IF NOT EXISTS qr_locked boolean NOT NULL DEFAULT false,
-  ADD COLUMN IF NOT EXISTS qr_code_id uuid,
+  ADD COLUMN IF NOT EXISTS qr_code_id text,
   ADD COLUMN IF NOT EXISTS qr_name text,
   ADD COLUMN IF NOT EXISTS qr_image_url text,
   ADD COLUMN IF NOT EXISTS qr_locked_at timestamptz,
@@ -87,7 +87,7 @@ BEGIN
   -- Atomically lock the quotation with trusted snapshot from hotel_settings
   UPDATE public.quotations
   SET qr_locked = true,
-      qr_code_id = NULLIF(_qr_id, '')::uuid,
+      qr_code_id = _qr_id,
       qr_name = matched_qr->>'name',
       qr_image_url = matched_qr->>'image_url',
       qr_locked_at = now(),
@@ -327,3 +327,7 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.convert_quotation_to_booking(uuid, jsonb, numeric, text, text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.convert_quotation_to_booking(uuid, jsonb, numeric, text, text, text) TO service_role;
+
+-- 8. Reload PostgREST schema cache so new columns & functions are immediately available
+NOTIFY pgrst, 'reload schema';
+
