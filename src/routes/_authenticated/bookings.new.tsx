@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { addDaysISO, errMsg, money, nights, todayISO } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { BOOKING_SOURCES, bookingTotal, groupRoomsByCategory, suggestedQty, EXTRA_UNITS } from "@/lib/booking";
+import { parsePaymentQrs, type PaymentQr } from "@/lib/payment-qrs";
 import { saveQuotation, calculateQuotationBreakdown, type QuotationCharge } from "@/lib/quotations";
 
 export const Route = createFileRoute("/_authenticated/bookings/new")({
@@ -34,6 +35,7 @@ function NewBooking() {
     check_in: today, check_out: addDaysISO(today, 1),
     adults: 1, children: 0, discount: 0, gst_bill: false,
     source: "Walk-in", notes: "", advance: 0, advance_method: "",
+    advance_received_in: "",
   });
   const [selected, setSelected] = useState<Record<string, number>>({});
   const [selectedExtras, setSelectedExtras] = useState<Record<string, boolean>>({});
@@ -42,6 +44,11 @@ function NewBooking() {
   const [guestId, setGuestId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }));
+
+  const configuredQrs = useMemo(
+    () => parsePaymentQrs(settings.data?.payment_qrs),
+    [settings.data]
+  );
 
   const extrasQuery = useQuery({
     queryKey: ["extras-active"],
@@ -130,13 +137,21 @@ function NewBooking() {
     const list = Object.entries(selected);
     if (!list.length) { toast.error("Choose at least one room"); return; }
     if (!validDates) { toast.error("Check-out must be after check-in"); return; }
+
+    const isUpi = f.advance_method.toUpperCase() === "UPI";
+    if (isFuture && f.advance > 0 && isUpi && configuredQrs.length > 0 && !f.advance_received_in) {
+      toast.error("Please select which account received the UPI advance payment.");
+      return;
+    }
+
     setBusy(true);
-    const { data, error } = await supabase.rpc("create_booking_multi", {
+    const { data, error } = await (supabase.rpc as any)("create_booking_multi", {
       _guest_id: guestId as string, _guest_name: f.name, _guest_mobile: f.mobile, _guest_email: f.email,
       _rooms: list.map(([room_id, rate]) => ({ room_id, rate })),
       _check_in: f.check_in, _check_out: f.check_out, _adults: f.adults, _children: f.children,
       _discount: f.discount, _gst_bill: f.gst_bill, _source: f.source, _notes: f.notes,
       _advance: isFuture ? f.advance : 0, _advance_method: f.advance_method,
+      _advance_received_in: (isFuture && f.advance > 0 && isUpi) ? (f.advance_received_in || null) : null,
     });
     if (error) {
       setBusy(false);
@@ -328,11 +343,28 @@ function NewBooking() {
             <>
               <Field label="Advance received"><AmountInput value={f.advance} onValueChange={(value) => set("advance", value)} /></Field>
               <Field label="Advance method">
-                <Select value={f.advance_method} onValueChange={(v) => set("advance_method", v)}>
+                <Select value={f.advance_method} onValueChange={(v) => {
+                  set("advance_method", v);
+                  if (v.toUpperCase() === "UPI" && configuredQrs.length > 0 && !f.advance_received_in) {
+                    set("advance_received_in", configuredQrs[0].name);
+                  }
+                }}>
                   <SelectTrigger><SelectValue placeholder="Method" /></SelectTrigger>
                   <SelectContent>{(settings.data?.payment_methods ?? ["Cash"]).map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
                 </Select>
               </Field>
+              {f.advance > 0 && f.advance_method.toUpperCase() === "UPI" && configuredQrs.length > 0 && (
+                <Field label="Received In">
+                  <Select value={f.advance_received_in} onValueChange={(v) => set("advance_received_in", v)}>
+                    <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
+                    <SelectContent>
+                      {configuredQrs.map((qr) => (
+                        <SelectItem key={qr.id} value={qr.name}>{qr.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
             </>
           )}
         </div>

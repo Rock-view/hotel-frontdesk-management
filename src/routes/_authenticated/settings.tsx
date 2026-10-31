@@ -14,6 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { errMsg } from "@/lib/format";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { ExtrasSettings } from "@/components/ExtrasSettings";
+import { PaymentQrSettings } from "@/components/PaymentQrSettings";
+import { type PaymentQr } from "@/lib/payment-qrs";
 import { getPolicyVisibility, type PolicyKey } from "@/lib/policies";
 
 export const Route = createFileRoute("/_authenticated/settings")({
@@ -111,6 +113,14 @@ function SettingsPage() {
           <div className="space-y-1.5 sm:col-span-2"><Label>Payment methods (comma separated)</Label><Input disabled={!isOwner} value={methods} onChange={(e) => setMethods(e.target.value)} /></div>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">Tax rates differ by tariff and change over time. Confirm the correct rate with your accountant.</p>
+      </Card>
+
+      <Card title="Payment QR Codes">
+        <PaymentQrSettings
+          isOwner={isOwner}
+          qrs={((f as any).payment_qrs as PaymentQr[]) || []}
+          onChange={(newQrs) => set("payment_qrs" as any, newQrs as any)}
+        />
       </Card>
 
       <Card title="Extras (food, extra bed…)">

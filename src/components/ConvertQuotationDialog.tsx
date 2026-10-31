@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { AmountInput } from "@/components/AmountInput";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { errMsg, fmtDate, money, todayISO } from "@/lib/format";
+import { parsePaymentQrs, type PaymentQr } from "@/lib/payment-qrs";
 import type { Quotation } from "@/lib/quotations";
 
 export function ConvertQuotationDialog({
@@ -29,6 +30,9 @@ export function ConvertQuotationDialog({
   const [busy, setBusy] = useState(false);
   const [advance, setAdvance] = useState(0);
   const [advanceMethod, setAdvanceMethod] = useState("Cash");
+  const [advanceReceivedIn, setAdvanceReceivedIn] = useState("");
+
+  const configuredQrs = parsePaymentQrs(settings.data?.payment_qrs);
 
   // Room assignments: maps index of quoted room to { room_id: string, room_number: string, rate: number }
   const [assignments, setAssignments] = useState<Record<number, { room_id: string; room_number: string; rate: number }>>({});
@@ -38,6 +42,14 @@ export function ConvertQuotationDialog({
       setAdvanceMethod(settings.data.payment_methods[0] || "Cash");
     }
   }, [settings.data]);
+
+  useEffect(() => {
+    if (q?.qr_name) {
+      setAdvanceReceivedIn(q.qr_name);
+    } else if (configuredQrs.length > 0) {
+      setAdvanceReceivedIn(configuredQrs[0].name);
+    }
+  }, [q?.qr_name, settings.data]);
 
   // Query live available rooms for these dates
   const availableRoomsQuery = useQuery({
@@ -118,6 +130,12 @@ export function ConvertQuotationDialog({
       return;
     }
 
+    const isUpi = advanceMethod.toUpperCase() === "UPI";
+    if (isFuture && advance > 0 && isUpi && configuredQrs.length > 0 && !advanceReceivedIn) {
+      toast.error("Please select which account received the UPI advance payment.");
+      return;
+    }
+
     // Verify assigned room tariffs match quoted room tariffs
     const assignedRateSum = Object.values(assignments).reduce((s, a) => s + (Number(a.rate) || 0), 0);
     const quotedRateSum = (q!.rooms || []).reduce((s, r) => s + (Number(r.rate) || 0), 0);
@@ -143,6 +161,7 @@ export function ConvertQuotationDialog({
         _advance: isFuture ? advance : 0,
         _advance_method: advanceMethod,
         _notes: q!.notes || null,
+        _advance_received_in: (isFuture && advance > 0 && isUpi) ? (advanceReceivedIn || null) : null,
       });
 
       if (error) {
@@ -152,7 +171,7 @@ export function ConvertQuotationDialog({
           (error.message?.includes("function") && error.message?.includes("does not exist"));
 
         if (isFnMissing) {
-          const { data: fallbackBookingId, error: fbError } = await supabase.rpc("create_booking_multi", {
+          const { data: fallbackBookingId, error: fbError } = await (supabase.rpc as any)("create_booking_multi", {
             _guest_id: null as any,
             _guest_name: q!.guest_name,
             _guest_mobile: q!.guest_mobile,
@@ -168,6 +187,7 @@ export function ConvertQuotationDialog({
             _notes: q!.notes ? `[Converted from ${q!.quotation_no}] ${q!.notes}` : `Converted from quotation ${q!.quotation_no}`,
             _advance: isFuture ? advance : 0,
             _advance_method: advanceMethod,
+            _advance_received_in: (isFuture && advance > 0 && isUpi) ? (advanceReceivedIn || null) : null,
           });
 
           if (fbError) {
@@ -322,6 +342,19 @@ export function ConvertQuotationDialog({
                   </SelectContent>
                 </Select>
               </div>
+              {advanceMethod.toUpperCase() === "UPI" && configuredQrs.length > 0 && advance > 0 && (
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label>Received In (UPI Account) <span className="text-destructive">*</span></Label>
+                  <Select value={advanceReceivedIn} onValueChange={setAdvanceReceivedIn}>
+                    <SelectTrigger><SelectValue placeholder="Select UPI account" /></SelectTrigger>
+                    <SelectContent>
+                      {configuredQrs.map((qr) => (
+                        <SelectItem key={qr.id} value={qr.name}>{qr.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           )}
 

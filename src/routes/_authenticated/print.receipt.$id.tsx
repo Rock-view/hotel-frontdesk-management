@@ -19,7 +19,7 @@ export const Route = createFileRoute("/_authenticated/print/receipt/$id")({
 
 type Snap = {
   hotel: { name: string; logo_url: string | null; address: string | null; phone: string | null; email: string | null; gstin: string | null; currency: string; receipt_footer: string | null; show_logo: boolean; show_address: boolean; show_gstin: boolean; show_balance: boolean };
-  payment: { receipt_no: string; amount: number; method: string; reference: string | null; note: string | null; received_at: string; kind: string; booking_id: string };
+  payment: { receipt_no: string; amount: number; method: string; reference: string | null; note: string | null; received_at: string; kind: string; booking_id: string; received_in?: string | null };
   booking: { booking_no: string; created_at: string; check_in: string; check_out: string; gst_bill?: boolean };
   guest: { name: string; mobile: string };
   room: string;
@@ -96,7 +96,7 @@ function ReceiptPage() {
           <dt className="text-muted-foreground">Booking</dt><dd className="text-right">{s.booking.booking_no} ({fmtDate(s.booking.created_at.slice(0, 10))})</dd>
           <dt className="text-muted-foreground">Room category</dt><dd className="text-right">{q.data.categories.join(", ") || "Room"}</dd>
           <dt className="text-muted-foreground">Stay</dt><dd className="text-right">{fmtDate(s.booking.check_in)} → {fmtDate(s.booking.check_out)}</dd>
-          <dt className="text-muted-foreground">Method</dt><dd className="text-right">{s.payment.method}{s.payment.reference ? ` · ${s.payment.reference}` : ""}</dd>
+          <dt className="text-muted-foreground">Method</dt><dd className="text-right">{s.payment.method}{s.payment.reference ? ` · ${s.payment.reference}` : ""}{s.payment.received_in ? ` (Received in: ${s.payment.received_in})` : ""}</dd>
           {s.payment.note && (<><dt className="text-muted-foreground">Note</dt><dd className="text-right">{s.payment.note}</dd></>)}
         </dl>
         <div className="my-5 rounded-lg bg-muted p-4 text-center">

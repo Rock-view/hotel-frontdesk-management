@@ -1,9 +1,11 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { toast } from "sonner";
 import { Download, MessageCircle, Printer, ArrowRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { QuotationDocument } from "@/components/QuotationDocument";
+import { SelectQuotationQrDialog } from "@/components/SelectQuotationQrDialog";
+import { type PaymentQr } from "@/lib/payment-qrs";
 import { downloadPdfFromElement, openWhatsAppChat } from "@/lib/pdf";
 import type { Quotation } from "@/lib/quotations";
 
@@ -22,9 +24,15 @@ export function ViewQuotationDialog({
 }) {
   const docRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
+  const [qrSelectOpen, setQrSelectOpen] = useState(false);
+  const [currentQuotation, setCurrentQuotation] = useState<Quotation | null>(quotation);
+
+  useEffect(() => {
+    setCurrentQuotation(quotation);
+  }, [quotation]);
 
   if (!quotation) return null;
-  const q = quotation;
+  const q = currentQuotation || quotation;
 
   const filename = `Quotation_${q.quotation_no}.pdf`;
 
@@ -42,13 +50,22 @@ export function ViewQuotationDialog({
     }
   }
 
-  function handleWhatsApp() {
+  function executeOpenWhatsApp(item: Quotation) {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const link = `${origin}/view/quotation/${q.id}`;
+    const link = `${origin}/view/quotation/${item.id}`;
     const hotelName = settings?.name || "our hotel";
-    const greeting = `Hi ${q.guest_name}, Please Find the Attached Quotation from ${hotelName}:\n${link}`;
-    openWhatsAppChat(q.guest_mobile, greeting);
+    const greeting = `Hi ${item.guest_name}, Please Find the Attached Quotation from ${hotelName}:\n${link}`;
+    openWhatsAppChat(item.guest_mobile, greeting);
     toast.success("WhatsApp opened with quotation link");
+  }
+
+  function handleWhatsApp() {
+    const configuredQrs = ((settings as any)?.payment_qrs as PaymentQr[]) || [];
+    if (q.qr_locked || configuredQrs.length === 0) {
+      executeOpenWhatsApp(q);
+      return;
+    }
+    setQrSelectOpen(true);
   }
 
   return (
@@ -79,6 +96,19 @@ export function ViewQuotationDialog({
         <div className="py-2">
           <QuotationDocument ref={docRef} quotation={q} settings={settings} />
         </div>
+
+        {qrSelectOpen && (
+          <SelectQuotationQrDialog
+            quotation={q}
+            qrs={((settings as any)?.payment_qrs as PaymentQr[]) || []}
+            open={qrSelectOpen}
+            onClose={() => setQrSelectOpen(false)}
+            onConfirmedAndShare={(locked) => {
+              setCurrentQuotation(locked);
+              executeOpenWhatsApp(locked);
+            }}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -22,6 +22,7 @@ import { billTitle, EXTRA_UNITS, suggestedQty } from "@/lib/booking";
 import { customerRoomCategory } from "@/lib/customer-rooms";
 import { InvoiceDocument } from "@/components/InvoiceDocument";
 import { downloadPdfFromElement, openWhatsAppChat } from "@/lib/pdf";
+import { parsePaymentQrs, type PaymentQr } from "@/lib/payment-qrs";
 
 export const Route = createFileRoute("/_authenticated/bookings/$id")({
   head: () => ({ meta: [{ title: "Booking — Front Desk" }, { name: "description", content: "Booking details, extras, bill and check-in." }, { property: "og:title", content: "Booking — Front Desk" }, { property: "og:description", content: "Booking details, extras, bill and check-in." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
@@ -295,7 +296,10 @@ function BookingDetail() {
                 {payments.map((p) => (
                   <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
                     <div>
-                      <div>{p.kind === "refund" ? "− " : ""}{money(p.amount, cur)} · {p.method}</div>
+                      <div>
+                        {p.kind === "refund" ? "− " : ""}{money(p.amount, cur)} · {p.method}
+                        {p.received_in && <span className="ml-1 text-xs text-muted-foreground font-normal">({p.received_in})</span>}
+                      </div>
                       <div className="text-xs text-muted-foreground">{p.receipt_no} · {fmtDateTime(p.received_at)}</div>
                     </div>
                     <ActionTooltip label="View or print receipt">
@@ -323,7 +327,15 @@ function BookingDetail() {
         />
       )}
       {cancelOpen && <CancelDialog onClose={() => setCancelOpen(false)} bookingId={id} paid={Number(t?.paid ?? 0) - Number(t?.refunded ?? 0)} cur={cur} onDone={refresh} />}
-      <PaymentDialog kind={payOpen} onClose={() => setPayOpen(null)} bookingId={id} methods={settings.data?.payment_methods ?? ["Cash"]} suggested={Math.abs(balance)} onDone={refresh} />
+      <PaymentDialog
+        kind={payOpen}
+        onClose={() => setPayOpen(null)}
+        bookingId={id}
+        methods={settings.data?.payment_methods ?? ["Cash"]}
+        suggested={Math.abs(balance)}
+        configuredQrs={parsePaymentQrs(settings.data?.payment_qrs)}
+        onDone={refresh}
+      />
       <ChargeDialog open={chargeOpen} onClose={() => setChargeOpen(false)} bookingId={id} onDone={refresh} />
       <StatusDialog to={statusOpen} onClose={() => setStatusOpen(null)} bookingId={id} balance={balance} cur={cur} onDone={refresh} />
 
@@ -358,20 +370,51 @@ function Row({ l, r, bold }: { l: string; r: string; bold?: boolean }) {
 
 
 
-function PaymentDialog({ kind, onClose, bookingId, methods, suggested, onDone }: { kind: null | "payment" | "refund"; onClose: () => void; bookingId: string; methods: string[]; suggested: number; onDone: () => void }) {
+function PaymentDialog({
+  kind,
+  onClose,
+  bookingId,
+  methods,
+  suggested,
+  configuredQrs = [],
+  onDone,
+}: {
+  kind: null | "payment" | "refund";
+  onClose: () => void;
+  bookingId: string;
+  methods: string[];
+  suggested: number;
+  configuredQrs?: PaymentQr[];
+  onDone: () => void;
+}) {
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState(methods[0] ?? "Cash");
+  const [receivedIn, setReceivedIn] = useState("");
   const [reference, setReference] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const value = amount === "" ? suggested : Number(amount);
+  const isUpi = method.toUpperCase() === "UPI";
+
   async function save() {
+    if (kind === "payment" && isUpi && configuredQrs.length > 0 && !receivedIn) {
+      toast.error("Please select the UPI receiving account");
+      return;
+    }
     setBusy(true);
-    const { error } = await supabase.rpc("record_payment", { _booking_id: bookingId, _kind: kind!, _amount: value, _method: method, _reference: reference, _note: note });
+    const { error } = await supabase.rpc("record_payment", {
+      _booking_id: bookingId,
+      _kind: kind!,
+      _amount: value,
+      _method: method,
+      _reference: reference,
+      _note: note,
+      _received_in: (kind === "payment" && isUpi) ? (receivedIn || null) : null,
+    });
     setBusy(false);
     if (error) { toast.error(errMsg(error)); return; }
     toast.success(kind === "refund" ? "Refund recorded" : "Payment received");
-    setAmount(""); setReference(""); setNote("");
+    setAmount(""); setReference(""); setNote(""); setReceivedIn("");
     onDone(); onClose();
   }
   return (
@@ -381,13 +424,41 @@ function PaymentDialog({ kind, onClose, bookingId, methods, suggested, onDone }:
         <div className="space-y-4">
           <div className="space-y-1.5"><Label>Amount</Label><Input type="number" min={0} step="0.01" value={amount} placeholder={String(suggested)} onChange={(e) => setAmount(e.target.value)} /></div>
           <div className="space-y-1.5"><Label>Method</Label>
-            <Select value={method} onValueChange={setMethod}><SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{methods.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent></Select>
+            <Select
+              value={method}
+              onValueChange={(val) => {
+                setMethod(val);
+                if (val.toUpperCase() !== "UPI") setReceivedIn("");
+              }}
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{methods.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+            </Select>
           </div>
+          {kind === "payment" && isUpi && configuredQrs.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Received In (UPI Account) <span className="text-destructive">*</span></Label>
+              <Select value={receivedIn} onValueChange={setReceivedIn}>
+                <SelectTrigger><SelectValue placeholder="Select UPI account" /></SelectTrigger>
+                <SelectContent>
+                  {configuredQrs.map((qr) => (
+                    <SelectItem key={qr.id} value={qr.name}>{qr.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="space-y-1.5"><Label>Reference (UPI / txn ID)</Label><Input value={reference} onChange={(e) => setReference(e.target.value)} /></div>
           <div className="space-y-1.5"><Label>Note</Label><Input value={note} onChange={(e) => setNote(e.target.value)} /></div>
         </div>
-        <DialogFooter><Button onClick={save} disabled={busy || !(value > 0)}>{busy ? "Saving…" : "Save"}</Button></DialogFooter>
+        <DialogFooter>
+          <Button
+            onClick={save}
+            disabled={busy || !(value > 0) || (kind === "payment" && isUpi && configuredQrs.length > 0 && !receivedIn)}
+          >
+            {busy ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

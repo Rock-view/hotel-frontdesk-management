@@ -11,6 +11,8 @@ import { fmtDate, money } from "@/lib/format";
 import { deleteQuotation, type Quotation } from "@/lib/quotations";
 import { ViewQuotationDialog } from "@/components/ViewQuotationDialog";
 import { EditQuotationDialog } from "@/components/EditQuotationDialog";
+import { SelectQuotationQrDialog } from "@/components/SelectQuotationQrDialog";
+import { type PaymentQr } from "@/lib/payment-qrs";
 import { ConvertQuotationDialog } from "@/components/ConvertQuotationDialog";
 import { QuotationDocument } from "@/components/QuotationDocument";
 import { downloadPdfFromElement, openWhatsAppChat } from "@/lib/pdf";
@@ -24,6 +26,7 @@ export function QuotationsList({ onConverted }: { onConverted?: (bookingId: stri
   const [viewQuotation, setViewQuotation] = useState<Quotation | null>(null);
   const [editQuotation, setEditQuotation] = useState<Quotation | null>(null);
   const [convertQuotation, setConvertQuotation] = useState<Quotation | null>(null);
+  const [qrSelectQuotation, setQrSelectQuotation] = useState<Quotation | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   // Hidden offscreen container for direct PDF download/share from list
@@ -99,13 +102,26 @@ export function QuotationsList({ onConverted }: { onConverted?: (bookingId: stri
     }, 150);
   }
 
-  function handleDirectWhatsApp(item: Quotation) {
+  function executeOpenWhatsApp(item: Quotation) {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     const link = `${origin}/view/quotation/${item.id}`;
     const hotelName = settings.data?.name || "our hotel";
     const greeting = `Hi ${item.guest_name}, Please Find the Attached Quotation from ${hotelName}:\n${link}`;
     openWhatsAppChat(item.guest_mobile, greeting);
     toast.success("WhatsApp opened with quotation link");
+  }
+
+  function handleDirectWhatsApp(item: Quotation) {
+    const configuredQrs = ((settings.data as any)?.payment_qrs as PaymentQr[]) || [];
+
+    // If quotation already has a permanently locked QR, or no QRs configured in settings:
+    if (item.qr_locked || configuredQrs.length === 0) {
+      executeOpenWhatsApp(item);
+      return;
+    }
+
+    // Prompt user to select exactly one QR code
+    setQrSelectQuotation(item);
   }
 
   const list = q.data ?? [];
@@ -253,6 +269,19 @@ export function QuotationsList({ onConverted }: { onConverted?: (bookingId: stri
           onSuccess={(bookingId) => {
             refresh();
             if (onConverted) onConverted(bookingId);
+          }}
+        />
+      )}
+
+      {qrSelectQuotation && (
+        <SelectQuotationQrDialog
+          quotation={qrSelectQuotation}
+          qrs={((settings.data as any)?.payment_qrs as PaymentQr[]) || []}
+          open={!!qrSelectQuotation}
+          onClose={() => setQrSelectQuotation(null)}
+          onConfirmedAndShare={(lockedQuotation) => {
+            refresh();
+            executeOpenWhatsApp(lockedQuotation);
           }}
         />
       )}

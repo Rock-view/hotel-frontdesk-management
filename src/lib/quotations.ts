@@ -36,6 +36,11 @@ export type Quotation = {
   notes?: string | null;
   rooms: QuotationRoom[];
   charges: QuotationCharge[];
+  qr_locked?: boolean;
+  qr_code_id?: string | null;
+  qr_name?: string | null;
+  qr_image_url?: string | null;
+  qr_locked_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -104,6 +109,76 @@ export async function getQuotationById(id: string): Promise<Quotation | null> {
   const { data, error } = await (supabase.from("quotations" as never) as any).select("*").eq("id", id).maybeSingle();
   if (error) throw error;
   return data as Quotation | null;
+}
+
+export async function lockQuotationQr(
+  quotationId: string,
+  qrId: string,
+  fallbackQr?: { name: string; image_url: string }
+): Promise<{ qr_name: string; qr_image_url: string; qr_locked: boolean }> {
+  // 1. Try atomic server RPC with trusted backend validation
+  try {
+    const { data, error } = await (supabase.rpc as any)("lock_quotation_qr", {
+      _quotation_id: quotationId,
+      _qr_id: qrId,
+    });
+    if (!error && data) {
+      return {
+        qr_name: data.qr_name,
+        qr_image_url: data.qr_image_url,
+        qr_locked: true,
+      };
+    }
+  } catch (rpcErr) {
+    console.warn("lock_quotation_qr RPC error, attempting fallback", rpcErr);
+  }
+
+  // 2. Direct fallback (if RPC is pending deployment)
+  const q = await getQuotationById(quotationId);
+  if (!q) throw new Error("Quotation not found");
+  if (q.qr_locked && q.qr_name && q.qr_image_url) {
+    return {
+      qr_name: q.qr_name,
+      qr_image_url: q.qr_image_url,
+      qr_locked: true,
+    };
+  }
+
+  // Fetch trusted QR details from hotel_settings
+  let name = fallbackQr?.name || "";
+  let imageUrl = fallbackQr?.image_url || "";
+
+  if (!name || !imageUrl) {
+    const { data: s } = await supabase.from("hotel_settings").select("payment_qrs").eq("id", 1).maybeSingle();
+    const qrs = ((s as any)?.payment_qrs as any[]) || [];
+    const matched = qrs.find((item) => item.id === qrId);
+    if (matched) {
+      name = matched.name;
+      imageUrl = matched.image_url;
+    }
+  }
+
+  if (!name || !imageUrl) {
+    throw new Error("Configured QR code not found.");
+  }
+
+  const { error: updErr } = await (supabase.from("quotations" as never) as any)
+    .update({
+      qr_locked: true,
+      qr_code_id: qrId,
+      qr_name: name,
+      qr_image_url: imageUrl,
+      qr_locked_at: new Date().toISOString(),
+    })
+    .eq("id", quotationId);
+
+  if (updErr) throw updErr;
+
+  return {
+    qr_name: name,
+    qr_image_url: imageUrl,
+    qr_locked: true,
+  };
 }
 
 export function calculateQuotationBreakdown(params: {

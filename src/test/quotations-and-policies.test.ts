@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_POLICY_VISIBILITY, getPolicyVisibility } from "@/lib/policies";
 import { calculateQuotationBreakdown, calculateQuotationTotal } from "@/lib/quotations";
+import { parsePaymentQrs, type PaymentQr } from "@/lib/payment-qrs";
 
 describe("policy visibility", () => {
   it("defaults have all policies visible on estimate and bill where appropriate", () => {
@@ -213,4 +214,60 @@ describe("quotation calculations & breakdown", () => {
     expect(injectedStyle?.textContent).toContain("--card: #ffffff !important;");
   });
 });
+
+describe("payment QR management and quotation QR locking", () => {
+  it("safely parses payment_qrs from null, undefined, or empty data", () => {
+    expect(parsePaymentQrs(null)).toEqual([]);
+    expect(parsePaymentQrs(undefined)).toEqual([]);
+    expect(parsePaymentQrs("not-an-array")).toEqual([]);
+    expect(parsePaymentQrs([])).toEqual([]);
+  });
+
+  it("parses valid payment QR configurations and limits to max 3", () => {
+    const raw = [
+      { id: "qr_1", name: "HDFC Official", image_url: "https://example.com/qr1.png", created_at: "2026-10-31T00:00:00Z" },
+      { id: "qr_2", name: "Mauli UPI", image_url: "https://example.com/qr2.png", created_at: "2026-10-31T00:00:00Z" },
+      { id: "qr_3", name: "Axis Bank", image_url: "https://example.com/qr3.png", created_at: "2026-10-31T00:00:00Z" },
+      { id: "qr_4", name: "Extra Excess Slot", image_url: "https://example.com/qr4.png", created_at: "2026-10-31T00:00:00Z" },
+    ];
+    const qrs = parsePaymentQrs(raw);
+    expect(qrs).toHaveLength(3);
+    expect(qrs[0].name).toBe("HDFC Official");
+    expect(qrs[1].name).toBe("Mauli UPI");
+    expect(qrs[2].name).toBe("Axis Bank");
+  });
+
+  it("filters out invalid QR entries missing required id, name, or image_url", () => {
+    const raw = [
+      { id: "qr_1", name: "HDFC Official", image_url: "https://example.com/qr1.png" },
+      { id: "", name: "Invalid", image_url: "https://example.com/qr2.png" },
+      { id: "qr_3", name: "", image_url: "https://example.com/qr3.png" },
+      { id: "qr_4", name: "Missing URL" },
+      null,
+      123,
+    ];
+    const qrs = parsePaymentQrs(raw);
+    expect(qrs).toHaveLength(1);
+    expect(qrs[0].id).toBe("qr_1");
+  });
+
+  it("preserves locked quotation QR snapshot metadata without mutation", () => {
+    const lockedQuotation = {
+      id: "quotation-uuid-1",
+      quotation_no: "QT-00001",
+      guest_name: "John Doe",
+      total: 5000,
+      qr_locked: true,
+      qr_code_id: "qr_hdfc",
+      qr_name: "HDFC Official",
+      qr_image_url: "https://example.com/hotel-qr.png",
+      qr_locked_at: "2026-10-31T12:00:00Z",
+    };
+
+    expect(lockedQuotation.qr_locked).toBe(true);
+    expect(lockedQuotation.qr_name).toBe("HDFC Official");
+    expect(lockedQuotation.qr_image_url).toBe("https://example.com/hotel-qr.png");
+  });
+});
+
 

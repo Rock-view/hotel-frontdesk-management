@@ -132,6 +132,34 @@ export const QuotationDocument = React.forwardRef<HTMLDivElement, QuotationDocum
           </div>
         </div>
 
+        {/* Payment QR Code (if locked with quotation) */}
+        {q.qr_image_url && (
+          <div className="my-5 rounded-xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5">
+            <div className="flex flex-col sm:flex-row items-center sm:items-start justify-between gap-4">
+              <div className="space-y-1 text-center sm:text-left">
+                <div className="text-xs font-semibold uppercase tracking-wider text-sky-700">Scan to Pay Advance / Deposit</div>
+                <div className="text-sm font-bold text-slate-900">
+                  Pay to: <span className="text-sky-800">{q.qr_name || "Hotel Official UPI"}</span>
+                </div>
+                <p className="text-xs text-slate-500 max-w-sm">
+                  Scan this QR code using any UPI app (GPay, PhonePe, Paytm, BHIM) to transfer your advance deposit. Please share the payment transaction screenshot or UTR after paying.
+                </p>
+              </div>
+
+              <div className="flex flex-col items-center shrink-0">
+                <div className="h-36 w-36 sm:h-40 sm:w-40 rounded-lg border-2 border-slate-300 bg-white p-2 shadow-sm">
+                  <img
+                    src={q.qr_image_url}
+                    alt={q.qr_name ? `UPI QR - ${q.qr_name}` : "UPI Payment QR"}
+                    className="h-full w-full object-contain"
+                  />
+                </div>
+                <div className="mt-1 text-[11px] font-medium text-slate-500">Scan with any UPI App</div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Hotel Policies (Following Estimate Visibility Settings) */}
         <div className="mt-6 space-y-4 border-t border-slate-200 pt-4 text-xs text-slate-600">
           {vis.arrival_departure.estimate && (

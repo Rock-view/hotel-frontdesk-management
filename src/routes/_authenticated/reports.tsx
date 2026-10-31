@@ -36,7 +36,7 @@ function Reports() {
     queryFn: async () => {
       const toEx = addDaysISO(to, 1);
       const [pays, stays, rooms, open] = await Promise.all([
-        supabase.from("payments").select("receipt_no, kind, amount, method, received_at, bookings(booking_no, guests(name), room_number, rooms(number))")
+        supabase.from("payments").select("receipt_no, kind, amount, method, received_in, received_at, bookings(booking_no, guests(name), room_number, rooms(number))")
           .gte("received_at", from + "T00:00:00").lt("received_at", toEx + "T00:00:00").order("received_at"),
         supabase.from("bookings").select("id, check_in, check_out, status, created_at").lt("check_in", toEx).gt("check_out", from),
         supabase.from("rooms").select("id", { count: "exact", head: true }).eq("active", true),
@@ -92,8 +92,8 @@ function Reports() {
     <div className="space-y-6">
       <PageHeader title="Reports" actions={
         <>
-          <Button variant="outline" onClick={() => csv(`payments_${from}_${to}.csv`, [["Receipt", "Date", "Type", "Method", "Amount", "Booking", "Guest", "Room"],
-            ...(d?.pays ?? []).map((p) => [p.receipt_no, p.received_at, p.kind, p.method, p.kind === "refund" ? -Number(p.amount) : Number(p.amount), p.bookings?.booking_no ?? "", p.bookings?.guests?.name ?? "", (p.bookings?.rooms?.number ?? p.bookings?.room_number) ?? ""])])}>
+          <Button variant="outline" onClick={() => csv(`payments_${from}_${to}.csv`, [["Receipt", "Date", "Type", "Method", "Received In", "Amount", "Booking", "Guest", "Room"],
+            ...(d?.pays ?? []).map((p: any) => [p.receipt_no, p.received_at, p.kind, p.method, p.received_in || "—", p.kind === "refund" ? -Number(p.amount) : Number(p.amount), p.bookings?.booking_no ?? "", p.bookings?.guests?.name ?? "", (p.bookings?.rooms?.number ?? p.bookings?.room_number) ?? ""])])}>
             <Download className="mr-1 h-4 w-4" />Payments CSV
           </Button>
           <Button variant="outline" onClick={() => csv(`dues_${todayISO()}.csv`, [["Booking", "Guest", "Mobile", "Room", "Status", "Check-out", "Total", "Due"],
